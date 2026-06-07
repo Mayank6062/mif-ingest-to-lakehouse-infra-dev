@@ -158,6 +158,11 @@ class GitHubService:
         """
         Create a GitHub PR with **actual Terraform file changes**.
 
+        *** CRITICAL: GitHub repository is the authoritative source of truth ***
+        Before deciding between existing vs new source system workflow, this method
+        checks the actual GitHub repository for terraform/{source}/locals.tf.
+        The workflow state 'source_system_exists' flag is OVERRIDDEN by the real repo state.
+
         For existing source systems:
           * Reads ``terraform/{source}/locals.tf`` from the base branch.
           * Inserts the new job entry into the ``glue_jobs`` map.
@@ -177,7 +182,30 @@ class GitHubService:
         source_system  = state.get("source_system", "")
         schema_grain   = state.get("schema_grain", "")
         branch_name    = state.get("branch_name") or self.make_branch_name(source_system, schema_grain)
-        source_exists  = state.get("source_system_exists", True)
+        
+        # ──────────────────────────────────────────────────────────────────────
+        # CRITICAL FIX: Check GitHub repository to determine if source exists
+        # This is the SOURCE OF TRUTH — not knowledge base, not workflow state
+        # ──────────────────────────────────────────────────────────────────────
+        locals_path_in_repo = f"terraform/{source_system}/locals.tf"
+        actual_file_exists = self._get_file_content(repo, locals_path_in_repo, self._base_branch) is not None
+        
+        # The GitHub repository state is authoritative
+        source_exists = actual_file_exists
+        
+        # Log the decision for debugging
+        workflow_state_claim = state.get("source_system_exists", True)
+        if workflow_state_claim != source_exists:
+            logger.info(
+                "REPOSITORY STATE OVERRIDE: workflow claimed source_system_exists=%s, "
+                "but GitHub shows %s (file=%s). Using GitHub state as source of truth.",
+                workflow_state_claim, source_exists, locals_path_in_repo
+            )
+        else:
+            logger.info(
+                "Repository state matches workflow state: source_system_exists=%s "
+                "(GitHub: %s exists)", source_exists, "does" if source_exists else "does not"
+            )
         job_key        = state.get("job_key", "unknown")
         environment    = state.get("environment", "")
 
@@ -206,7 +234,8 @@ class GitHubService:
 
         # ── 3. Open Pull Request ──────────────────────────────────────────────
         pr_title = f"feat(glue): Add Glue job {job_key}"
-        pr_body  = self._build_pr_body(state, committed_files)
+        # Pass the actual source_exists value (from GitHub check, not from state)
+        pr_body  = self._build_pr_body(state, committed_files, source_exists_actual=source_exists)
 
         pr = _with_retry(
             lambda: repo.create_pull(
@@ -370,13 +399,19 @@ class GitHubService:
 
     # ── PR body ───────────────────────────────────────────────────────────────
 
-    def _build_pr_body(self, state: dict, committed_files: list[str]) -> str:
-        """Compose a detailed PR description including the generated HCL."""
+    def _build_pr_body(self, state: dict, committed_files: list[str], source_exists_actual: bool = None) -> str:
+        """Compose a detailed PR description including the generated HCL.
+        
+        Args:
+            source_exists_actual: If provided, use this value instead of state's source_system_exists.
+                                 This represents the ACTUAL GitHub repository state.
+        """
         job_key        = state.get("job_key", "")
         topic          = state.get("topic", "")
         source_system  = state.get("source_system", "")
         schema_grain   = state.get("schema_grain", "")
-        source_exists  = state.get("source_system_exists", True)
+        # Use actual GitHub state if provided, otherwise fall back to state
+        source_exists  = source_exists_actual if source_exists_actual is not None else state.get("source_system_exists", True)
         worker_type    = state.get("worker_type", "G.1X")
         num_workers    = state.get("number_of_workers", 2)
         environment    = state.get("environment", "")
