@@ -1,0 +1,18 @@
+# ── Secrets — NEVER commit real credentials ──────────────────────────────────
+.env.local
+.env.*.local
+.env
+!.env.example
+
+# ── Next.js build artifacts ───────────────────────────────────────────────────
+.next/
+out/
+
+# ── Dependencies ──────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*

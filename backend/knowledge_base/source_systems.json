@@ -1,0 +1,256 @@
+{
+  "description": "Known source systems extracted from mif-ingest-to-lakehouse-infra-dev repository (cell1 + cell2 analysis)",
+  "note": "This represents known EXISTING folders in the repository. New source systems not in this list require new folder creation.",
+  "total_sources_approx": "50+",
+
+  "pattern_types": {
+    "local_module": {
+      "description": "Uses locals.tf + glue.tf with local modules/glue_job module",
+      "files": ["locals.tf", "glue.tf"],
+      "update_strategy": "Add new entry to glue_jobs map in locals.tf only"
+    },
+    "external_module": {
+      "description": "Uses locals.tf + main.tf with external Talaria minerva-talaria-terraform-modules",
+      "files": ["locals.tf", "main.tf"],
+      "update_strategy": "Modify locals.tf configuration; main.tf handles module wiring"
+    },
+    "specialized": {
+      "description": "Edge cases: ECS, testing, or utility stacks",
+      "files": ["varies"],
+      "update_strategy": "Requires manual review"
+    }
+  },
+
+  "known_source_systems": [
+    {
+      "folder": "saptc1",
+      "display_name": "SAP TC1",
+      "pattern_type": "local_module",
+      "ent_func": "AGTR",
+      "domain": "SAP",
+      "note": "SAP ABAP tables from TC1 instance"
+    },
+    {
+      "folder": "saptc2",
+      "display_name": "SAP TC2",
+      "pattern_type": "local_module",
+      "ent_func": "AGTR",
+      "domain": "SAP"
+    },
+    {
+      "folder": "saptca",
+      "display_name": "SAP TCA",
+      "pattern_type": "local_module",
+      "ent_func": "AGTR",
+      "domain": "SAP"
+    },
+    {
+      "folder": "saptcc",
+      "display_name": "SAP TCC",
+      "pattern_type": "local_module",
+      "ent_func": "CORP",
+      "subgroup": "CORP_DTD",
+      "domain": "SAP",
+      "note": "ent_func=CORP confirmed from real saptcc/locals.tf",
+      "sink_config": {
+        "iceberg_database": "lh_sap_tcc_raw_${env}",
+        "iceberg_warehouse": "s3://minerva-${env}-src-corp/current/prd/raw/sap_tcc/",
+        "assume_role_arn": "arn:aws:iam::851725323791:role/corp_dtd_${env}_procintegratedingestionengineer"
+      },
+      "known_topics": [
+        "dev.saptcc.multi-1.raw",
+        "dev.saptcc.multi-2.raw",
+        "dev.saptcc.multi-3.raw",
+        "dev.saptcc.multi-4.raw",
+        "dev.saptcc.multi-5.raw",
+        "dev.saptcc.multi-6.raw",
+        "dev.saptcc.acdoca.raw",
+        "dev.saptcc.bseg.raw",
+        "dev.saptcc.cdhdr.raw",
+        "dev.saptcc.cdpos.raw",
+        "dev.saptcc.prcd_elements.raw",
+        "dev.saptcc.fdm_dcobj.raw"
+      ],
+      "known_jobs": [
+        "kafka-to-iceberg-batch-saptcc-multi-1",
+        "kafka-to-iceberg-batch-saptcc-multi-2",
+        "kafka-to-iceberg-batch-saptcc-multi-3",
+        "kafka-to-iceberg-batch-saptcc-multi-4",
+        "kafka-to-iceberg-batch-saptcc-multi-5",
+        "kafka-to-iceberg-batch-saptcc-multi-6",
+        "kafka-to-iceberg-batch-saptcc-acdoca",
+        "kafka-to-iceberg-batch-saptcc-bseg",
+        "kafka-to-iceberg-batch-saptcc-cdhdr",
+        "kafka-to-iceberg-batch-saptcc-cdpos",
+        "kafka-to-iceberg-batch-saptcc-prcd_elements",
+        "kafka-to-iceberg-batch-saptcc-fdm_dcobj"
+      ]
+    },
+    {
+      "folder": "saptcd",
+      "display_name": "SAP TCD",
+      "pattern_type": "local_module",
+      "ent_func": "AGTR",
+      "domain": "SAP"
+    },
+    {
+      "folder": "saptce",
+      "display_name": "SAP TCE",
+      "pattern_type": "local_module",
+      "ent_func": "AGTR",
+      "domain": "SAP",
+      "known_jobs": [
+        "kafka-to-iceberg-batch-saptce-multi-1",
+        "kafka-to-iceberg-batch-saptce-acdoca"
+      ]
+    },
+    {
+      "folder": "saptcf",
+      "display_name": "SAP TCF",
+      "pattern_type": "local_module",
+      "ent_func": "AGTR",
+      "domain": "SAP",
+      "known_topics": ["dev.saptcf.bseg.raw"]
+    },
+    {
+      "folder": "saptcg",
+      "display_name": "SAP TCG",
+      "pattern_type": "local_module",
+      "ent_func": "AGTR",
+      "domain": "SAP"
+    },
+    {
+      "folder": "saptcl",
+      "display_name": "SAP TCL",
+      "pattern_type": "local_module",
+      "ent_func": "AGTR",
+      "domain": "SAP"
+    },
+    {
+      "folder": "wahoo",
+      "display_name": "Wahoo",
+      "pattern_type": "local_module",
+      "ent_func": "AGTR",
+      "domain": "Commodity Trading",
+      "known_topics": [
+        "dev.wahoo.multi-1.raw"
+      ],
+      "known_jobs": [
+        "kafka-to-iceberg-wahoo-multi-1"
+      ]
+    },
+    {
+      "folder": "sfsc",
+      "display_name": "SFSC",
+      "pattern_type": "local_module",
+      "ent_func": "AGTR",
+      "domain": "Operational",
+      "known_topics": [
+        "dev.sfsc.multi-2.raw"
+      ],
+      "known_jobs": [
+        "kafka-to-iceberg-concur-core-user"
+      ]
+    },
+    {
+      "folder": "yongyou",
+      "display_name": "Yongyou",
+      "pattern_type": "local_module",
+      "ent_func": "FOOD",
+      "domain": "ERP",
+      "note": "Example of a new source system folder creation pattern"
+    },
+    {
+      "folder": "aurora",
+      "display_name": "Aurora",
+      "pattern_type": "local_module",
+      "ent_func": "CORP",
+      "domain": "Financial",
+      "note": "Aurora inbound billing and invoice management, uses Kafka streaming"
+    },
+    {
+      "folder": "concur",
+      "display_name": "Concur",
+      "pattern_type": "local_module",
+      "ent_func": "CORP",
+      "domain": "Financial",
+      "note": "Travel and expense management"
+    },
+    {
+      "folder": "axapta",
+      "display_name": "Axapta (Dynamics 365)",
+      "pattern_type": "local_module",
+      "ent_func": "AGTR",
+      "domain": "ERP"
+    },
+    {
+      "folder": "iiq",
+      "display_name": "IIQ (Integrated Inventory)",
+      "pattern_type": "local_module",
+      "ent_func": "AGTR",
+      "domain": "Supply Chain"
+    },
+    {
+      "folder": "m3",
+      "display_name": "M3",
+      "pattern_type": "local_module",
+      "ent_func": "AGTR",
+      "domain": "ERP"
+    },
+    {
+      "folder": "fts",
+      "display_name": "FTS",
+      "pattern_type": "local_module",
+      "ent_func": "AGTR",
+      "domain": "Financial"
+    },
+    {
+      "folder": "food-pros",
+      "display_name": "Food Pros",
+      "pattern_type": "external_module",
+      "ent_func": "FOOD",
+      "domain": "Food"
+    },
+    {
+      "folder": "customer-hierarchy",
+      "display_name": "Customer Hierarchy",
+      "pattern_type": "external_module",
+      "ent_func": "AGTR",
+      "domain": "Reference Data"
+    },
+    {
+      "folder": "openmeteo",
+      "display_name": "OpenMeteo",
+      "pattern_type": "external_module",
+      "ent_func": "AGTR",
+      "domain": "External Data",
+      "note": "Weather and meteorological data"
+    }
+  ],
+
+  "new_source_system_creation_checklist": [
+    "1. Verify source system does NOT already exist as a folder",
+    "2. Create folder: {source_system}/ at repository root",
+    "3. Create locals.tf inside the folder with: ent_func, subgroup, kafka_bootstrap_endpoint map, schema_registry_endpoint map, miw_account_id map, glue_jobs map",
+    "4. Create glue.tf inside the folder with: module reference to modules/glue_job, for_each = local.glue_jobs",
+    "5. Add the new folder path to .vela.py for CI/CD deployment",
+    "6. Add first job entry to glue_jobs map in locals.tf"
+  ],
+
+  "decision_tree": {
+    "question": "Does the source system folder already exist?",
+    "yes": {
+      "action": "Add new job entry to existing locals.tf → glue_jobs map",
+      "files_modified": ["{source_system}/locals.tf"],
+      "files_created": []
+    },
+    "no": {
+      "action": "Create new source system folder with locals.tf and glue.tf",
+      "files_modified": [".vela.py"],
+      "files_created": [
+        "{source_system}/locals.tf",
+        "{source_system}/glue.tf"
+      ]
+    }
+  }
+}

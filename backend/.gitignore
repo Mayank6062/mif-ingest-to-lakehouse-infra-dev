@@ -1,0 +1,22 @@
+# ── Secrets — NEVER commit real credentials ──────────────────────────────────
+# This file is a safety net — the root .gitignore also covers these patterns.
+.env
+.env.*
+!.env.example
+
+# ── Python artifacts ──────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# ── Audit logs ────────────────────────────────────────────────────────────────
+logs/*.jsonl

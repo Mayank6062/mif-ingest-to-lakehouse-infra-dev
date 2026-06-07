@@ -1,0 +1,489 @@
+{
+  "knowledge_base_version": "1.0.0",
+  "source": "Extracted from mif-ingest-to-lakehouse-infra-dev repo via Copilot analysis (cell1-cell8) + mentor SOP doc",
+  "last_updated": "2026-06-05",
+
+  "rules": {
+
+    "topic_naming": [
+      {
+        "rule_id": "TR-001",
+        "rule_name": "Topic must follow environment-prefixed pattern",
+        "description": "Kafka topics are always environment-prefixed and follow a strict 4-segment dot-notation format",
+        "pattern": "{environment}.{source_system}.{schema_grain}.raw",
+        "regex": "^(dev|snd|prod)\\.[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*\\.raw$",
+        "examples": [
+          "dev.saptcc.multi-1.raw",
+          "dev.saptcc.cdhdr.raw",
+          "dev.wahoo.multi-1.raw",
+          "dev.sfsc.multi-2.raw",
+          "dev.saptcf.bseg.raw",
+          "dev.saptcc.acdoca.raw"
+        ],
+        "segment_map": {
+          "segment_0": "environment (dev | snd | prod)",
+          "segment_1": "source_system (e.g. saptcc, wahoo, sfsc)",
+          "segment_2": "schema_grain (e.g. multi-1, cdhdr, bseg, acdoca)",
+          "segment_3": "data_state (must always be 'raw' for raw-layer ingestion)"
+        },
+        "severity": "ERROR",
+        "failure_message": "Topic name does not match required pattern: {env}.{source_system}.{schema_grain}.raw"
+      },
+      {
+        "rule_id": "TR-002",
+        "rule_name": "Topic must end with .raw",
+        "description": "All raw-layer Kafka topics must end with the literal segment 'raw'",
+        "validation_logic": "topic.split('.')[-1] == 'raw'",
+        "severity": "ERROR",
+        "failure_message": "Topic must end with '.raw'. Example: dev.saptcc.multi-1.raw"
+      },
+      {
+        "rule_id": "TR-003",
+        "rule_name": "Topic segment count must be exactly 4",
+        "description": "Topics must have exactly 4 dot-separated segments",
+        "validation_logic": "len(topic.split('.')) == 4",
+        "severity": "ERROR",
+        "failure_message": "Topic must have exactly 4 segments separated by dots: {env}.{source}.{grain}.raw"
+      },
+      {
+        "rule_id": "TR-004",
+        "rule_name": "Environment must be one of allowed values",
+        "description": "First segment must be a recognized environment identifier",
+        "allowed_values": ["dev", "snd", "prod"],
+        "validation_logic": "topic.split('.')[0] in ['dev', 'snd', 'prod']",
+        "severity": "ERROR",
+        "failure_message": "Environment segment must be one of: dev, snd, prod"
+      },
+      {
+        "rule_id": "TR-005",
+        "rule_name": "Source system must be lowercase alphanumeric with optional hyphens",
+        "description": "Source system segment should be lowercase, alphanumeric, may include hyphens",
+        "regex": "^[a-z][a-z0-9-]*$",
+        "severity": "ERROR",
+        "failure_message": "Source system must be lowercase alphanumeric (hyphens allowed, no underscores or spaces)"
+      }
+    ],
+
+    "source_system": [
+      {
+        "rule_id": "SR-001",
+        "rule_name": "One top-level folder per source system",
+        "description": "Each source system maps to exactly one top-level repository folder. Folder name = source system identity.",
+        "severity": "ERROR"
+      },
+      {
+        "rule_id": "SR-002",
+        "rule_name": "Existing source system check",
+        "description": "Before creating a new folder, check if source_system folder already exists in the repository",
+        "action_if_exists": "Add new job entry to existing locals.tf in that folder",
+        "action_if_not_exists": "Create new folder with source_system name, then create locals.tf and glue.tf matching repo patterns",
+        "severity": "WARNING"
+      },
+      {
+        "rule_id": "SR-003",
+        "rule_name": "New source system requires vela.py registration",
+        "description": "Every new top-level folder must be added to .vela.py for CI/CD deployment",
+        "severity": "ERROR",
+        "failure_message": "New source folder must be registered in .vela.py before deployment"
+      }
+    ],
+
+    "folder_creation": [
+      {
+        "rule_id": "FR-001",
+        "rule_name": "New folder must be registered in .vela.py",
+        "description": "All deployable source folders must be listed in .vela.py",
+        "severity": "ERROR"
+      },
+      {
+        "rule_id": "FR-002",
+        "rule_name": "New folder must use recognized deployment pattern",
+        "description": "New folders should use one of the two primary Terraform patterns",
+        "allowed_patterns": [
+          "locals.tf + glue.tf (local module pattern) — recommended for Kafka-to-Iceberg",
+          "locals.tf + main.tf (external Talaria module pattern)"
+        ],
+        "severity": "ERROR"
+      },
+      {
+        "rule_id": "FR-003",
+        "rule_name": "Folder name must match source system identity",
+        "description": "Folder name is used as source identity in CI, secrets, databases, and warehouse paths",
+        "severity": "ERROR"
+      }
+    ],
+
+    "job_naming": [
+      {
+        "rule_id": "JR-001",
+        "rule_name": "Kafka-to-Iceberg job naming pattern",
+        "description": "Kafka-to-Iceberg batch jobs must follow the standard naming pattern",
+        "pattern": "kafka-to-iceberg-batch-{source}-{stream}",
+        "examples": [
+          "kafka-to-iceberg-batch-saptce-multi-1",
+          "kafka-to-iceberg-batch-saptce-acdoca",
+          "kafka-to-iceberg-batch-wahoo-multi-1",
+          "kafka-to-iceberg-batch-saptcc-cdhdr"
+        ],
+        "derivation": {
+          "source": "segment_1 from topic name (the source_system)",
+          "stream": "segment_2 from topic name (the schema_grain)"
+        },
+        "severity": "ERROR"
+      },
+      {
+        "rule_id": "JR-002",
+        "rule_name": "Job name must be unique within folder's glue_jobs map",
+        "description": "No two jobs in the same locals.tf glue_jobs map can have the same key",
+        "severity": "ERROR",
+        "failure_message": "Job name already exists in this source folder's locals.tf"
+      },
+      {
+        "rule_id": "JR-003",
+        "rule_name": "Job name characters",
+        "description": "Job names must use lowercase alphanumeric characters and hyphens only",
+        "regex": "^[a-z][a-z0-9-]*$",
+        "severity": "ERROR"
+      }
+    ],
+
+    "worker_config": [
+      {
+        "rule_id": "WR-001",
+        "rule_name": "Worker type must be from allowed set",
+        "description": "Only AWS Glue supported worker types are allowed",
+        "allowed_values": ["G.025X", "G.1X", "G.2X", "G.4X"],
+        "default": "G.1X",
+        "validation_logic": "worker_type in ['G.025X', 'G.1X', 'G.2X', 'G.4X']",
+        "severity": "ERROR",
+        "failure_message": "Worker type must be one of: G.025X, G.1X, G.2X, G.4X"
+      },
+      {
+        "rule_id": "WR-002",
+        "rule_name": "Number of workers must be within allowed range",
+        "description": "Worker count must be between 1 and 10 inclusive",
+        "min": 1,
+        "max": 10,
+        "default": 2,
+        "validation_logic": "1 <= number_of_workers <= 10",
+        "severity": "ERROR",
+        "failure_message": "Number of workers must be between 1 and 10"
+      },
+      {
+        "rule_id": "WR-003",
+        "rule_name": "Worker sizing guidelines",
+        "description": "Convention-based sizing recommendations by workload class",
+        "guidelines": [
+          { "workload": "Lightweight or frequent Kafka topic", "recommended": "G.025X or G.1X, 1-2 workers" },
+          { "workload": "Default shared ingestion", "recommended": "G.1X with 2 workers" },
+          { "workload": "Moderate-heavy structured workloads", "recommended": "G.2X with 2-4 workers" },
+          { "workload": "Heavy partitioned or high-volume jobs", "recommended": "G.4X with 4+ workers" }
+        ],
+        "severity": "WARNING"
+      }
+    ],
+
+    "enterprise_func": [
+      {
+        "rule_id": "ER-001",
+        "rule_name": "Enterprise function must be from allowed set",
+        "description": "ent_func controls ownership tagging and CI-injected locals. Must be a recognized business domain.",
+        "allowed_values": ["AGTR", "CORP", "FOOD", "SPEC"],
+        "default": "AGTR",
+        "validation_logic": "ent_func in ['AGTR', 'CORP', 'FOOD', 'SPEC']",
+        "severity": "ERROR",
+        "failure_message": "Enterprise function must be one of: AGTR, CORP, FOOD, SPEC"
+      },
+      {
+        "rule_id": "ER-002",
+        "rule_name": "New ent_func requires governance review",
+        "description": "If the requested ent_func is not in the known list, treat as a governance-level change",
+        "severity": "WARNING",
+        "failure_message": "Unknown ent_func — requires governance review before use"
+      }
+    ],
+
+    "subgroup": [
+      {
+        "rule_id": "SGR-001",
+        "rule_name": "Subgroup must be declared",
+        "description": "Every source folder must declare a subgroup value",
+        "known_values": [
+          "AGTR_APAC", "ANH", "APAC", "CBI",
+          "CORP_DTD", "CORP_FIN", "DTD", "FIN",
+          "FSGL", "GTC", "HR", "TDA", "TDA_COCOA", "WTG"
+        ],
+        "default": "APAC",
+        "severity": "WARNING",
+        "note": "Subgroup is less normalized than ent_func. New values are allowed but should follow existing patterns."
+      }
+    ],
+
+    "job_type": [
+      {
+        "rule_id": "JOBT-001",
+        "rule_name": "Terraform job_type must be from allowed set",
+        "description": "The Terraform job_type field controls Talaria execution mode",
+        "allowed_values": [
+          "unified",
+          "unified_batch",
+          "kafka_to_iceberg",
+          "kafka_to_iceberg_batch",
+          "flat_file_to_iceberg"
+        ],
+        "default": "unified",
+        "severity": "ERROR",
+        "failure_message": "job_type must be one of: unified, unified_batch, kafka_to_iceberg, kafka_to_iceberg_batch, flat_file_to_iceberg"
+      },
+      {
+        "rule_id": "JOBT-002",
+        "rule_name": "Scheduling mode",
+        "description": "Separate from job_type, the scheduling mode controls when the job runs",
+        "allowed_values": ["manual", "scheduled"],
+        "default": "manual",
+        "note": "If 'scheduled', a trigger_schedule (cron expression) is required",
+        "severity": "ERROR"
+      },
+      {
+        "rule_id": "JOBT-003",
+        "rule_name": "Cron expression format for scheduled jobs",
+        "description": "AWS EventBridge cron format required for scheduled jobs",
+        "format": "cron(minute hour day month day-of-week year)",
+        "example": "cron(0 1 * * ? *)",
+        "severity": "ERROR",
+        "failure_message": "Cron expression must follow AWS EventBridge format: cron(0 1 * * ? *)"
+      }
+    ],
+
+    "job_version": [
+      {
+        "rule_id": "JV-001",
+        "rule_name": "Talaria job version",
+        "description": "Controls which Talaria script/library artifacts are used",
+        "default": "0.3.0",
+        "known_versions": ["0.3.0", "0.3.3"],
+        "severity": "WARNING",
+        "note": "Use default unless specific version is required. Check with team for latest stable version."
+      },
+      {
+        "rule_id": "JV-002",
+        "rule_name": "Glue version",
+        "description": "AWS Glue runtime version",
+        "default": "5.0",
+        "known_values": ["4.0", "5.0", "5.1"],
+        "severity": "WARNING"
+      }
+    ],
+
+    "sink_database": [
+      {
+        "rule_id": "DBR-001",
+        "rule_name": "Target database naming family A — minerva pattern",
+        "description": "Primary naming pattern for minerva-owned databases",
+        "pattern": "minerva_{env}_src_{domain}_{source}_prd_raw_db",
+        "examples": [
+          "minerva_dev_src_agtr_saptce_prd_raw_db",
+          "minerva_dev_src_agtr_saptcc_prd_raw_db"
+        ],
+        "severity": "WARNING"
+      },
+      {
+        "rule_id": "DBR-002",
+        "rule_name": "Target database naming family B — lh pattern",
+        "description": "Alternative naming pattern for lh-prefixed databases",
+        "pattern": "lh_{source_system_hyphenated}_raw_{env}",
+        "examples": [
+          "lh_cdp_sap_tc1_raw_dev",
+          "lh_sap_tcc_raw_prd",
+          "lh_agtr_apac_qilin_report_raw_dev"
+        ],
+        "severity": "WARNING"
+      },
+      {
+        "rule_id": "DBR-003",
+        "rule_name": "Database name must include environment",
+        "description": "Environment must be encoded in the database name",
+        "validation_logic": "env in database_name",
+        "severity": "ERROR"
+      },
+      {
+        "rule_id": "DBR-004",
+        "rule_name": "Database name must include raw state",
+        "description": "Raw state must be indicated in the database name",
+        "validation_logic": "'raw' in database_name",
+        "severity": "ERROR"
+      }
+    ],
+
+    "s3_warehouse": [
+      {
+        "rule_id": "SWR-001",
+        "rule_name": "Warehouse path must end with /",
+        "description": "S3 warehouse path prefix must always end with / for consistent prefix handling",
+        "validation_logic": "warehouse_path.endswith('/')",
+        "severity": "ERROR",
+        "failure_message": "S3 warehouse path must end with /"
+      },
+      {
+        "rule_id": "SWR-002",
+        "rule_name": "Warehouse path pattern — minerva family",
+        "pattern": "s3://minerva-{env}-src-{domain}/current/prd/raw/{source}/",
+        "examples": [
+          "s3://minerva-dev-src-agtr/current/prd/raw/sap_tce/",
+          "s3://minerva-${env}-src-${env}/current/prd/raw/sap_tce/"
+        ],
+        "severity": "WARNING"
+      },
+      {
+        "rule_id": "SWR-003",
+        "rule_name": "Warehouse path must include source system identity",
+        "description": "The final path segment must include the source system name",
+        "severity": "WARNING"
+      }
+    ],
+
+    "s3_checkpoint": [
+      {
+        "rule_id": "SCR-001",
+        "rule_name": "Checkpoint directory pattern",
+        "description": "Iceberg streaming checkpoints must use the standard checkpoint bucket",
+        "pattern": "s3://minerva-{env}-glue-checkpoints/checkpoints/{mode}/",
+        "examples": [
+          "s3://minerva-dev-glue-checkpoints/checkpoints/unified/"
+        ],
+        "severity": "WARNING"
+      }
+    ],
+
+    "secret_naming": [
+      {
+        "rule_id": "SER-001",
+        "rule_name": "Kafka secret naming pattern",
+        "description": "AWS Secrets Manager secret for Kafka authentication credentials",
+        "pattern": "minerva-{env}-corp-mif-{source_system}-gluejob-sa-cc-api-creds",
+        "examples": [
+          "minerva-dev-corp-mif-saptcc-gluejob-sa-cc-api-creds",
+          "minerva-prod-corp-mif-wahoo-gluejob-sa-cc-api-creds"
+        ],
+        "note": "Same secret is often reused for both source Kafka access and sink_transformer1 (kafka_split)",
+        "severity": "WARNING"
+      }
+    ],
+
+    "schema_registry": [
+      {
+        "rule_id": "SRR-001",
+        "rule_name": "Schema registry endpoint must be environment-mapped",
+        "description": "Schema registry endpoints are defined as environment maps in locals.tf",
+        "reference": "local.schema_registry_endpoint[local.env]",
+        "severity": "WARNING"
+      }
+    ],
+
+    "iceberg_config": [
+      {
+        "rule_id": "IR-001",
+        "rule_name": "Iceberg catalog type must be glue",
+        "description": "All Iceberg sinks in this repository use AWS Glue as the catalog",
+        "allowed_values": ["glue"],
+        "default": "glue",
+        "severity": "ERROR"
+      },
+      {
+        "rule_id": "IR-002",
+        "rule_name": "Iceberg catalog ID must be environment-mapped",
+        "description": "Glue catalog account ID differs per environment",
+        "reference": "local.miw_account_id[local.env]",
+        "severity": "ERROR"
+      },
+      {
+        "rule_id": "IR-003",
+        "rule_name": "Iceberg assume role session name",
+        "description": "Standard session name for cross-account Iceberg writes",
+        "value": "mif-glue-iceberg",
+        "severity": "ERROR"
+      }
+    ],
+
+    "transformer_chain": [
+      {
+        "rule_id": "TCR-001",
+        "rule_name": "Default transformer chain for Kafka-to-Iceberg",
+        "description": "Standard transformer sequence for all Kafka-to-Iceberg raw jobs",
+        "default_chain": [
+          {
+            "position": "transformer1",
+            "name": "timestamp",
+            "params": {
+              "--transformer1_column": "processing_timestamp",
+              "--transformer1_value_format": "json"
+            }
+          },
+          {
+            "position": "transformer2",
+            "name": "kafka_unpack",
+            "params": {
+              "--transformer2_metadata_column": "__metadata__"
+            }
+          },
+          {
+            "position": "sink_transformer1",
+            "name": "kafka_split",
+            "params": {
+              "--sink_transformer1_schema_registry_endpoint": "local.schema_registry_endpoint[local.env]",
+              "--sink_transformer1_secret_name": "<same-as-source-secret>"
+            }
+          }
+        ],
+        "severity": "WARNING",
+        "note": "Use default chain unless customization is specifically requested"
+      }
+    ],
+
+    "locals_tf_update": [
+      {
+        "rule_id": "LR-001",
+        "rule_name": "locals.tf is the primary business configuration layer",
+        "description": "All job definitions, environment maps, and ownership metadata live in locals.tf",
+        "severity": "INFO"
+      },
+      {
+        "rule_id": "LR-002",
+        "rule_name": "For existing folder: only update locals.tf",
+        "description": "If the folder already has glue.tf wired up, only add a new entry to the glue_jobs map in locals.tf",
+        "severity": "INFO"
+      },
+      {
+        "rule_id": "LR-003",
+        "rule_name": "For new folder: create both locals.tf and glue.tf",
+        "description": "New source folders require both files to be created matching existing repo patterns",
+        "severity": "ERROR"
+      }
+    ],
+
+    "glue_tf_update": [
+      {
+        "rule_id": "GR-001",
+        "rule_name": "glue.tf is thin wiring only",
+        "description": "glue.tf iterates over local.glue_jobs using for_each, it should NOT hold business config",
+        "severity": "WARNING"
+      },
+      {
+        "rule_id": "GR-002",
+        "rule_name": "Update glue.tf only when creating a new folder",
+        "description": "When adding jobs to an existing folder, do NOT modify glue.tf — only modify locals.tf",
+        "severity": "WARNING"
+      }
+    ],
+
+    "sink_trigger": [
+      {
+        "rule_id": "STR-001",
+        "rule_name": "Default sink trigger",
+        "description": "For Kafka-to-Iceberg streaming jobs the sink trigger should be availableNow",
+        "default": "availableNow",
+        "severity": "WARNING"
+      }
+    ]
+  }
+}
