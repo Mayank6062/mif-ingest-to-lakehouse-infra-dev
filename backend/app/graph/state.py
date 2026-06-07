@@ -104,6 +104,10 @@ class GlueJobState(TypedDict, total=False):
     source_system_exists: Optional[bool]
     source_system_pattern: Optional[str]  # local_module | external_module | new
     source_system_display_name: Optional[str]
+    knowledge_base_source_system_exists: Optional[bool]
+    github_source_system_exists: Optional[bool]
+    source_system_decision_source: Optional[str]
+    source_system_locals_path: Optional[str]
 
     # ── STEP 4: Sink configuration ────────────────────────────────────────
     iceberg_database: Optional[str]
@@ -179,6 +183,10 @@ def initial_state(session_id: str) -> GlueJobState:
         source_system_exists=None,
         source_system_pattern=None,
         source_system_display_name=None,
+        knowledge_base_source_system_exists=None,
+        github_source_system_exists=None,
+        source_system_decision_source=None,
+        source_system_locals_path=None,
         # Sink
         iceberg_database=None,
         iceberg_warehouse=None,

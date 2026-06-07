@@ -12,8 +12,8 @@ from app.agents.knowledge_agent import KnowledgeAgent
 
 def check_source_system_node(state: GlueJobState) -> GlueJobState:
     """
-    Looks up the source system in source_systems.json.
-    Determines if the folder exists and what pattern it uses.
+    Resolves source-system existence using the live GitHub repository.
+    Knowledge-base data is used only for metadata such as display name/pattern.
     """
     source_system = state.get("source_system", "")
     agent = KnowledgeAgent()
@@ -22,18 +22,17 @@ def check_source_system_node(state: GlueJobState) -> GlueJobState:
     exists = result["source_system_exists"]
     pattern = result["source_system_pattern"]
     display = result["source_system_display_name"]
+    locals_path = result["source_system_locals_path"]
 
     if exists:
         status_msg = (
-            f"✅ **Source system found:** `{source_system}/`\n\n"
-            f"**Pattern:** `{pattern}` — I'll update the existing "
-            f"`locals.tf` and `glue.tf` files."
+            f"✅ **Source system found in GitHub:** `{locals_path}` exists.\n\n"
+            f"**Pattern:** `{pattern}` — I'll update the existing `locals.tf` entry only."
         )
     else:
         status_msg = (
-            f"⚠️ **New source system:** `{source_system}` is not in the known systems list.\n\n"
-            f"I'll create the `terraform/{source_system}/` folder with "
-            f"`locals.tf` and `glue.tf`, and register it in `.vela.py`."
+            f"⚠️ **New source system:** `{locals_path}` does not exist in GitHub.\n\n"
+            f"I'll create `terraform/{source_system}/locals.tf` and `terraform/{source_system}/glue.tf`."
         )
 
     message = {
@@ -54,5 +53,9 @@ def check_source_system_node(state: GlueJobState) -> GlueJobState:
         "source_system_exists": exists,
         "source_system_pattern": pattern,
         "source_system_display_name": display,
+        "knowledge_base_source_system_exists": result["knowledge_base_source_system_exists"],
+        "github_source_system_exists": result["github_source_system_exists"],
+        "source_system_decision_source": result["source_system_decision_source"],
+        "source_system_locals_path": locals_path,
         "messages": [message],
     }

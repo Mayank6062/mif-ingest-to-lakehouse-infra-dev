@@ -20,13 +20,13 @@ def confirm_derived_node(state: GlueJobState) -> GlueJobState:
     job_key = state.get("job_key", "")
     kafka_secret = state.get("kafka_secret_name", "")
     source_exists = state.get("source_system_exists", True)
-    pattern = state.get("source_system_pattern", "local_module")
+    locals_path = state.get("source_system_locals_path", f"terraform/{source_system}/locals.tf")
 
-    folder_status = "✅ Exists" if source_exists else "⚠️ Will be created"
+    folder_status = "✅ Exists in GitHub" if source_exists else "⚠️ New source system"
     folder_action = (
-        f"Add new entry to `{source_system}/locals.tf` (glue.tf unchanged — uses for_each)"
+        f"Add new entry to `{locals_path}` (glue.tf unchanged — uses for_each)"
         if source_exists
-        else f"Create `{source_system}/locals.tf`, `{source_system}/glue.tf`, register in `.vela.py`"
+        else f"Create `terraform/{source_system}/locals.tf` and `terraform/{source_system}/glue.tf`"
     )
 
     message = {

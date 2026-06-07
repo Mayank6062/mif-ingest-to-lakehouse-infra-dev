@@ -25,16 +25,28 @@ Outgoing message format:
 """
 
 import json
+import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from app.api.processor import process_first_message, process_user_message
 from app.graph.builder import get_compiled_graph
 from app.graph.state import get_step_number, STEP_LABELS, STEP_ORDER, TOTAL_STEPS
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _thread_config(session_id: str) -> dict:
     return {"configurable": {"thread_id": session_id}}
+
+
+async def _send_json_logged(websocket: WebSocket, session_id: str, payload: dict) -> None:
+    logger.info(
+        "WebSocket outbound payload: session_id=%s type=%s payload=%s",
+        session_id,
+        payload.get("type"),
+        json.dumps(payload, ensure_ascii=True, default=str),
+    )
+    await websocket.send_json(payload)
 
 
 @router.websocket("/ws/{session_id}")
@@ -74,7 +86,7 @@ async def websocket_endpoint(
         # New session — run collect_topic_node, send initial widget
         opening_messages = await process_first_message(session_id)
         for msg in opening_messages:
-            await websocket.send_json(msg)
+            await _send_json_logged(websocket, session_id, msg)
     else:
         # Reconnecting — report the current step from checkpointed state
         values = snapshot.values
@@ -95,7 +107,7 @@ async def websocket_endpoint(
             and bool(validation_results)
         )
 
-        await websocket.send_json({
+        await _send_json_logged(websocket, session_id, {
             "type": "reconnected",
             "content": f"Welcome back! Resuming from step: **{current_step}**",
             "current_step": current_step,
@@ -126,7 +138,7 @@ async def websocket_endpoint(
             widget_value = incoming.get("widget_value")
 
             # Send typing indicator
-            await websocket.send_json({"type": "typing"})
+            await _send_json_logged(websocket, session_id, {"type": "typing"})
 
             try:
                 new_messages = await process_user_message(
@@ -135,15 +147,15 @@ async def websocket_endpoint(
                     widget_value=widget_value,
                 )
             except Exception as exc:
-                await websocket.send_json({
+                await _send_json_logged(websocket, session_id, {
                     "type": "error",
                     "content": f"An error occurred: {str(exc)}",
                 })
                 continue
 
-            await websocket.send_json({"type": "stop_typing"})
+            await _send_json_logged(websocket, session_id, {"type": "stop_typing"})
             for msg in new_messages:
-                await websocket.send_json(msg)
+                await _send_json_logged(websocket, session_id, msg)
 
     except WebSocketDisconnect:
         pass  # Client disconnected — checkpoint preserved for reconnection

@@ -4,7 +4,13 @@ All derivation is deterministic: NO LLM call needed here.
 Rules come from terraform_template.json field_derivation_logic.
 """
 
+import logging
+
 from app.knowledge.loader import get_knowledge_base
+from app.services.github_service import GitHubService
+
+
+logger = logging.getLogger(__name__)
 
 
 class KnowledgeAgent:
@@ -50,20 +56,36 @@ class KnowledgeAgent:
     def check_source_system(self, source_system: str) -> dict:
         """
         Returns:
-          - exists: bool
+          - exists: bool (authoritative GitHub repository decision)
           - pattern_type: "local_module" | "external_module" | "new"
           - display_name: human-readable description
         """
-        exists = self.kb.source_system_exists(source_system)
-        pattern = self.kb.get_pattern_type(source_system) if exists else "new"
+        kb_exists = self.kb.source_system_exists(source_system)
         info = self.kb.get_source_system_info(source_system)
-
         display = info.get("display_name", source_system.upper()) if info else source_system.upper()
+
+        repo_state = GitHubService().get_source_system_repository_state(source_system)
+        github_exists = repo_state["github_exists"]
+        exists = github_exists
+        pattern = self.kb.get_pattern_type(source_system) if exists and info else "new"
+
+        logger.info(
+            "Source-system decision: source_system=%s knowledge_base_exists=%s github_exists=%s final_exists=%s decision_source=github path=%s",
+            source_system,
+            kb_exists,
+            github_exists,
+            exists,
+            repo_state["locals_path"],
+        )
 
         return {
             "source_system_exists": exists,
             "source_system_pattern": pattern,
             "source_system_display_name": display,
+            "knowledge_base_source_system_exists": kb_exists,
+            "github_source_system_exists": github_exists,
+            "source_system_decision_source": "github",
+            "source_system_locals_path": repo_state["locals_path"],
         }
 
     # ── Files derivation ──────────────────────────────────────────────────────
@@ -88,11 +110,10 @@ class KnowledgeAgent:
                 f"terraform/{source_system}/locals.tf",
             ]
         else:
-            # New source system — create both files + register in .vela.py
+            # New source system — create both Terraform files
             return [
                 f"terraform/{source_system}/locals.tf",
                 f"terraform/{source_system}/glue.tf",
-                ".vela.py",
             ]
 
     def get_pr_checklist(
@@ -120,17 +141,18 @@ class KnowledgeAgent:
                 f"✅ `locals.tf` created with correct `ent_func`, `subgroup`, `glue_jobs` map",
                 f"✅ `glue.tf` created with standard `module \"glue_jobs\" {{ for_each = local.glue_jobs }}` block",
                 "✅ `kafka_bootstrap_endpoint`, `schema_registry_endpoint`, `miw_account_id` maps defined in locals.tf",
-                f"✅ Source system `{source_system}` registered in `.vela.py`",
                 "✅ First job entry added to `glue_jobs` map",
                 "✅ Worker type and count within allowed limits",
             ]
         return base
 
     def get_new_source_checklist(self, source_system: str) -> list[str]:
-        """Full onboarding checklist for a brand-new source system."""
-        return self.kb.source_systems.get(
-            "new_source_system_creation_checklist", []
-        )
+        """UI-facing onboarding checklist for a brand-new source system."""
+        return [
+            f"Create `terraform/{source_system}/locals.tf` with file-level locals and a `glue_jobs` map",
+            f"Create `terraform/{source_system}/glue.tf` with `for_each = local.glue_jobs`",
+            "Add the first job entry to the new `glue_jobs` map",
+        ]
 
     # ── Sink config derivation ────────────────────────────────────────────────
 

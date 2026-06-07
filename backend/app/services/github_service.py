@@ -145,6 +145,32 @@ class GitHubService:
             lambda: self._gh.get_repo(f"{self._repo_owner}/{self._repo_name}")
         )
 
+    def get_source_system_repository_state(self, source_system: str) -> dict:
+        """
+        Resolve source-system existence from the live GitHub repository.
+
+        GitHub is the authoritative source of truth. A source system exists only if
+        ``terraform/{source_system}/locals.tf`` exists on the configured base branch.
+        """
+        repo = self._get_repo()
+        locals_path = f"terraform/{source_system}/locals.tf"
+        github_exists = self._get_file_content(repo, locals_path, self._base_branch) is not None
+
+        logger.info(
+            "GitHub source-system check: source_system=%s base_branch=%s path=%s github_exists=%s",
+            source_system,
+            self._base_branch,
+            locals_path,
+            github_exists,
+        )
+
+        return {
+            "source_system": source_system,
+            "base_branch": self._base_branch,
+            "locals_path": locals_path,
+            "github_exists": github_exists,
+        }
+
     def make_branch_name(self, source_system: str, schema_grain: str) -> str:
         """Branch naming: feature/glue-job-{source_system}-{schema_grain}-{timestamp}"""
         ts       = datetime.utcnow().strftime("%Y%m%d%H%M%S")
@@ -187,8 +213,9 @@ class GitHubService:
         # CRITICAL FIX: Check GitHub repository to determine if source exists
         # This is the SOURCE OF TRUTH — not knowledge base, not workflow state
         # ──────────────────────────────────────────────────────────────────────
-        locals_path_in_repo = f"terraform/{source_system}/locals.tf"
-        actual_file_exists = self._get_file_content(repo, locals_path_in_repo, self._base_branch) is not None
+        repo_state = self.get_source_system_repository_state(source_system)
+        locals_path_in_repo = repo_state["locals_path"]
+        actual_file_exists = repo_state["github_exists"]
         
         # The GitHub repository state is authoritative
         source_exists = actual_file_exists
