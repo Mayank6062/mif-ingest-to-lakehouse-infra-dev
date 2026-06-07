@@ -37,12 +37,36 @@ def _require_owner(session_id: str, authorization: str) -> None:
     """
     Extract Bearer token from Authorization header and verify ownership.
     Raises HTTP 403 if the token is absent, malformed, or does not match the session.
+    
+    NOTE: For Redis-backed registries, use _require_owner_async() instead.
     """
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=403, detail="Authorization header required")
     token = authorization[len("Bearer "):].strip()
-    from app.models.session import get_session_registry
-    if not get_session_registry().validate_token(session_id, token):
+    from app.models.session import get_session_registry, SessionRegistry
+    registry = get_session_registry()
+    if isinstance(registry, SessionRegistry) and not registry.validate_token(session_id, token):
+        raise HTTPException(status_code=403, detail="Invalid or expired session token")
+
+
+async def _require_owner_async(session_id: str, authorization: str) -> None:
+    """
+    Async version: Extract Bearer token and verify ownership (supports Redis).
+    Raises HTTP 403 if the token is absent, malformed, or does not match the session.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=403, detail="Authorization header required")
+    token = authorization[len("Bearer "):].strip()
+    from app.models.session import get_session_registry, RedisSessionRegistry, SessionRegistry
+    registry = get_session_registry()
+    
+    valid = False
+    if isinstance(registry, RedisSessionRegistry):
+        valid = await registry.validate_token(session_id, token)
+    elif isinstance(registry, SessionRegistry):
+        valid = registry.validate_token(session_id, token)
+    
+    if not valid:
         raise HTTPException(status_code=403, detail="Invalid or expired session token")
 
 
@@ -62,7 +86,15 @@ async def create_session():
     # 32 bytes of CSPRNG output → 43-character URL-safe base64 string (256 bits entropy)
     session_token = secrets.token_urlsafe(32)
     from app.models.session import get_session_registry
-    get_session_registry().register(session_id, session_token)
+    registry = get_session_registry()
+    
+    # Handle both sync and async registries
+    from app.models.session import RedisSessionRegistry
+    if isinstance(registry, RedisSessionRegistry):
+        await registry.register(session_id, session_token)
+    else:
+        registry.register(session_id, session_token)
+    
     log_event("session_created", "system", {"session_id": session_id})
     return NewSessionResponse(
         session_id=session_id,
@@ -77,11 +109,11 @@ async def get_session_status(
     authorization: str = Header(default=""),
 ):
     """Get the current status of a session. Requires ownership token."""
-    _require_owner(session_id, authorization)
+    await _require_owner_async(session_id, authorization)
 
     from app.models.session import get_session_store
     store = get_session_store()
-    state = store.get(session_id)
+    state = await store.get(session_id)
 
     if state is None:
         return SessionStatusResponse(
@@ -105,7 +137,7 @@ async def delete_session(
     authorization: str = Header(default=""),
 ):
     """Delete a session (reset conversation). Requires ownership token."""
-    _require_owner(session_id, authorization)
+    await _require_owner_async(session_id, authorization)
 
     from app.models.session import get_session_store
     store = get_session_store()

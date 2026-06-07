@@ -63,5 +63,6 @@ def confirm_derived_node(state: GlueJobState) -> GlueJobState:
         **state,
         "current_step": STEP_CONFIRM_DERIVED,
         "waiting_for_user": True,
+        "user_confirmed_derived": None,  # reset so stale False from a prior "no" doesn't re-route immediately
         "messages": [message],
     }

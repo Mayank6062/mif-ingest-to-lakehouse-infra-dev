@@ -50,8 +50,16 @@ async def websocket_endpoint(
     The session must first be created via POST /api/sessions.
     """
     # ── Authentication gate — MUST happen before accept() ────────────────────
-    from app.models.session import get_session_registry
-    if not get_session_registry().validate_token(session_id, token):
+    from app.models.session import get_session_registry, RedisSessionRegistry, SessionRegistry
+    registry = get_session_registry()
+    
+    valid = False
+    if isinstance(registry, RedisSessionRegistry):
+        valid = await registry.validate_token(session_id, token)
+    elif isinstance(registry, SessionRegistry):
+        valid = registry.validate_token(session_id, token)
+    
+    if not valid:
         await websocket.close(code=1008)  # 1008 = Policy Violation
         return
 
@@ -59,7 +67,7 @@ async def websocket_endpoint(
 
     # Check if the graph already has a checkpoint for this session
     graph = get_compiled_graph()
-    snapshot = graph.get_state(_thread_config(session_id))
+    snapshot = await graph.aget_state(_thread_config(session_id))
     is_new_session = not (snapshot and snapshot.values)
 
     if is_new_session:

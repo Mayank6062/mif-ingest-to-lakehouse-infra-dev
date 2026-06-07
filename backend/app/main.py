@@ -118,7 +118,22 @@ async def lifespan(app: FastAPI):
         async with redis_ctx as checkpointer:
             initialize_graph(checkpointer)
             print(f"\u2705 Redis checkpointer initialized ({settings.redis_url})")
+            
+            # ── Initialize Redis-backed session registry (tokens persist) ──
+            from app.models.session import RedisSessionRegistry, set_redis_registry
+            import redis.asyncio as redis_asyncio
+            redis_client = redis_asyncio.from_url(settings.redis_url)
+            redis_registry = RedisSessionRegistry(
+                redis_client=redis_client,
+                ttl_seconds=settings.session_store_ttl_seconds
+            )
+            set_redis_registry(redis_registry)
+            print(f"\u2705 Redis session registry initialized (tokens persist)")
+            
             yield
+            
+            # Close Redis client on shutdown
+            await redis_client.close()
         # AsyncShallowRedisSaver.__aexit__ closes the Redis connection on shutdown
     else:
         # ── Dev bypass: in-memory checkpointer (no Redis required) ────────
@@ -127,6 +142,7 @@ async def lifespan(app: FastAPI):
         initialize_graph(checkpointer)
         print("\u26a0\ufe0f  In-memory checkpointer active (USE_REDIS_CHECKPOINTER=false)")
         print("   Session state will NOT persist across server restarts.")
+        print("   Session tokens will NOT persist across server restarts.")
         yield
 
 

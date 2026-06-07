@@ -46,6 +46,15 @@ def _get_current_step(session_id: str) -> str:
     return STEP_COLLECT_TOPIC
 
 
+async def _get_current_step_async(session_id: str) -> str:
+    """Async version: Read current_step from the graph's checkpointed state."""
+    graph = get_compiled_graph()
+    snapshot = await graph.aget_state(_thread_config(session_id))
+    if snapshot and snapshot.values:
+        return snapshot.values.get("current_step", STEP_COLLECT_TOPIC)
+    return STEP_COLLECT_TOPIC
+
+
 # ── Input mapping (replaces all _handle_*() functions) ───────────────────────
 
 def _map_user_input_to_state(
@@ -157,7 +166,7 @@ async def process_user_message(session_id: str, user_input: str, widget_value=No
         edit_type = widget_value.get("_edit_type")
         clean = {k: v for k, v in widget_value.items() if k != "_edit_type"}
         graph = get_compiled_graph()
-        snapshot = graph.get_state(thread_config)
+        snapshot = await graph.aget_state(thread_config)
         cur = snapshot.values or {}
 
         if edit_type == "sink":
@@ -175,16 +184,24 @@ async def process_user_message(session_id: str, user_input: str, widget_value=No
             return [user_msg]
 
         thread_config = _thread_config(session_id, action="edit")
-        await asyncio.to_thread(
-            graph.update_state, thread_config, state_update, STEP_COLLECT_WORKERS
-        )
+        await graph.aupdate_state(thread_config, state_update, STEP_COLLECT_WORKERS)
         new_msgs = await _stream_graph(None, thread_config)
         return [user_msg] + new_msgs
 
     # Normal step: update checkpoint then resume from interrupt
-    current_step = _get_current_step(session_id)
+    current_step = await _get_current_step_async(session_id)
     state_update = _map_user_input_to_state(current_step, user_input, widget_value)
+
+    # Special case: user rejected confirm_derived — restart from Step 1 immediately
+    # (the conditional edge _route_after_confirm_derived is evaluated BEFORE the
+    # interrupt fires, so we cannot rely on the routing to handle rejection;
+    # we must clear the checkpoint and start fresh here instead)
+    if current_step == STEP_CONFIRM_DERIVED and state_update.get("user_confirmed_derived") is False:
+        await clear_session_checkpoint(session_id)
+        new_msgs = await process_first_message(session_id)
+        return [user_msg] + new_msgs
+
     graph = get_compiled_graph()
-    await asyncio.to_thread(graph.update_state, thread_config, state_update)
+    await graph.aupdate_state(thread_config, state_update)
     new_msgs = await _stream_graph(None, thread_config)
     return [user_msg] + new_msgs
