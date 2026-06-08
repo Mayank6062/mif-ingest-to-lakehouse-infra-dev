@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { ChatMessage, UIWidget } from "@/types";
 import { ChipSelector } from "@/components/widgets/ChipSelector";
@@ -25,15 +25,18 @@ interface ChatMessageProps {
 export function ChatMessageBubble({ message, onSend, onApprove }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [interacted, setInteracted] = useState(false);
+  const interactedRef = useRef(false);
 
   const handleWidgetSubmit = (value: unknown, displayText: string) => {
-    if (interacted) return; // prevent double-submit
+    if (interactedRef.current) return; // prevent double-submit using ref for immediate check
+    interactedRef.current = true;
     setInteracted(true);
     onSend(displayText, value);
   };
 
   const handleApproval = (approved: boolean) => {
-    if (interacted) return;
+    if (interactedRef.current) return;
+    interactedRef.current = true;
     setInteracted(true);
     onApprove(approved);
   };
@@ -170,10 +173,25 @@ function WidgetRenderer({
             />
           );
         }
+        if (fieldNames.includes("job_key")) {
+          return (
+            <WorkerConfigForm
+              fields={widget.fields}
+              isLocked={isLocked}
+              formLabel="Derived values"
+              onSubmit={(data) => onSubmit(data, "Derived values confirmed")}
+              onResubmit={(data) => onResubmit(
+                { ...data, _edit_type: "derived" },
+                "✏️ Updated derived values"
+              )}
+            />
+          );
+        }
         return (
           <WorkerConfigForm
             fields={widget.fields}
             isLocked={isLocked}
+            formLabel="Worker configuration"
             onSubmit={(data) => onSubmit(data, "Worker configuration submitted")}
             onResubmit={(data) => onResubmit(
               { ...data, _edit_type: "workers" },

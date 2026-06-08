@@ -107,13 +107,13 @@ class KnowledgeAgent:
         if source_system_exists:
             # ONLY locals.tf — glue.tf's for_each picks up new entries automatically
             return [
-                f"terraform/{source_system}/locals.tf",
+                f"{source_system}/locals.tf",
             ]
         else:
             # New source system — create both Terraform files
             return [
-                f"terraform/{source_system}/locals.tf",
-                f"terraform/{source_system}/glue.tf",
+                f"{source_system}/locals.tf",
+                f"{source_system}/glue.tf",
             ]
 
     def get_pr_checklist(
@@ -126,7 +126,7 @@ class KnowledgeAgent:
         if source_system_exists:
             # Existing system: only locals.tf changes
             base = [
-                f"✅ `{job_key}` block added to `terraform/{source_system}/locals.tf`",
+                f"✅ `{job_key}` block added to `{source_system}/locals.tf`",
                 "✅ Job block is inside the `glue_jobs = { }` map",
                 "✅ `--source_kafka_secret_name` uses `minerva-${local.env}-corp-mif-...` format",
                 "✅ `--source_kafka_topic` uses `${local.env}.{source}.{grain}.raw` format",
@@ -137,7 +137,7 @@ class KnowledgeAgent:
             ]
         else:
             base = [
-                f"✅ New folder `terraform/{source_system}/` created",
+                f"✅ New folder `{source_system}/` created",
                 f"✅ `locals.tf` created with correct `ent_func`, `subgroup`, `glue_jobs` map",
                 f"✅ `glue.tf` created with standard `module \"glue_jobs\" {{ for_each = local.glue_jobs }}` block",
                 "✅ `kafka_bootstrap_endpoint`, `schema_registry_endpoint`, `miw_account_id` maps defined in locals.tf",
@@ -149,8 +149,8 @@ class KnowledgeAgent:
     def get_new_source_checklist(self, source_system: str) -> list[str]:
         """UI-facing onboarding checklist for a brand-new source system."""
         return [
-            f"Create `terraform/{source_system}/locals.tf` with file-level locals and a `glue_jobs` map",
-            f"Create `terraform/{source_system}/glue.tf` with `for_each = local.glue_jobs`",
+            f"Create `{source_system}/locals.tf` with file-level locals and a `glue_jobs` map",
+            f"Create `{source_system}/glue.tf` with `for_each = local.glue_jobs`",
             "Add the first job entry to the new `glue_jobs` map",
         ]
 

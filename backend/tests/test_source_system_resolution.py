@@ -8,7 +8,7 @@ def test_knowledge_agent_uses_github_as_source_of_truth_when_kb_disagrees():
         mock_service.return_value.get_source_system_repository_state.return_value = {
             "source_system": "saptcc",
             "base_branch": "main",
-            "locals_path": "terraform/saptcc/locals.tf",
+            "locals_path": "saptcc/locals.tf",
             "github_exists": False,
         }
 
@@ -28,7 +28,7 @@ def test_check_source_system_node_uses_github_state_for_ui_message():
         mock_service.return_value.get_source_system_repository_state.return_value = {
             "source_system": "saptcc",
             "base_branch": "main",
-            "locals_path": "terraform/saptcc/locals.tf",
+            "locals_path": "saptcc/locals.tf",
             "github_exists": False,
         }
 
@@ -37,7 +37,7 @@ def test_check_source_system_node_uses_github_state_for_ui_message():
     assert result["source_system_exists"] is False
     assert result["github_source_system_exists"] is False
     assert "does not exist in GitHub" in result["messages"][0]["content"]
-    assert "terraform/saptcc/locals.tf" in result["messages"][0]["content"]
+    assert "saptcc/locals.tf" in result["messages"][0]["content"]
 
 
 def test_confirm_derived_shows_new_source_system_actions():
@@ -51,7 +51,7 @@ def test_confirm_derived_shows_new_source_system_actions():
         "job_key": "kafka-to-iceberg-batch-saptcc-multi-1",
         "kafka_secret_name": "minerva-dev-corp-mif-saptcc-gluejob-sa-cc-api-creds",
         "source_system_exists": False,
-        "source_system_locals_path": "terraform/saptcc/locals.tf",
+        "source_system_locals_path": "saptcc/locals.tf",
     })
 
     rows = result["messages"][0]["widget"]["rows"]
@@ -59,7 +59,7 @@ def test_confirm_derived_shows_new_source_system_actions():
     action_row = next(row for row in rows if row["field"] == "Action")
 
     assert folder_row["value"] == "⚠️ New source system"
-    assert action_row["value"] == "Create `terraform/saptcc/locals.tf` and `terraform/saptcc/glue.tf`"
+    assert action_row["value"] == "Create `saptcc/locals.tf` and `saptcc/glue.tf`"
 
 
 def test_new_source_files_and_checklists_do_not_reference_vela():

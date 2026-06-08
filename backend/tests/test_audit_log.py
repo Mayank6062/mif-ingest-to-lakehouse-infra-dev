@@ -408,7 +408,7 @@ class TestAuditDoesNotBlockPRCreation:
                     "pr_url":         "https://github.com/org/repo/pull/42",
                     "branch_name":    "feature/glue-job-saptcc-cdhdr-20260606",
                     "pr_number":      42,
-                    "files_modified": ["terraform/saptcc/locals.tf"],
+                    "files_modified": ["saptcc/locals.tf"],
                 }
                 result = create_pr_node(self._make_pr_state())
         assert result.get("current_step") == "pr_success"

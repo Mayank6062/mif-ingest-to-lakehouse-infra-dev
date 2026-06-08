@@ -33,19 +33,19 @@ def terraform_preview_node(state: GlueJobState) -> GlueJobState:
         # NEW system: show the full locals.tf content + glue.tf (both CREATED)
         locals_code = locals_tf_full or terraform_hcl
         locals_action = "created"
-        locals_label = f"terraform/{source_system}/locals.tf — NEW FILE"
+        locals_label = f"{source_system}/locals.tf — NEW FILE"
         glue_action = "created"
-        glue_label = f"terraform/{source_system}/glue.tf — NEW FILE"
+        glue_label = f"{source_system}/glue.tf — NEW FILE"
     else:
         # EXISTING system: show only the entry to add inside locals.tf (NO glue.tf tab)
         # glue.tf NEVER changes for existing systems — for_each picks up new jobs automatically
         locals_code = (
             f"# ─── ADD this block inside the existing glue_jobs = {{ ... }} map ───\n"
-            f"# File: terraform/{source_system}/locals.tf\n\n"
+            f"# File: {source_system}/locals.tf\n\n"
             f"{terraform_hcl}"
         )
         locals_action = "modified"
-        locals_label = f"terraform/{source_system}/locals.tf — MODIFIED"
+        locals_label = f"{source_system}/locals.tf — MODIFIED"
 
     files_display = "\n".join([f"- `{f}`" for f in files_to_modify])
 
@@ -91,14 +91,14 @@ def terraform_preview_node(state: GlueJobState) -> GlueJobState:
             "files": (
                 [
                     {
-                        "filename": f"terraform/{source_system}/locals.tf",
+                        "filename": f"{source_system}/locals.tf",
                         "label": locals_label,
                         "language": "hcl",
                         "code": locals_code,
                         "action": locals_action,
                     },
                     {
-                        "filename": f"terraform/{source_system}/glue.tf",
+                        "filename": f"{source_system}/glue.tf",
                         "label": glue_label,
                         "language": "hcl",
                         "code": glue_tf_content,
@@ -108,7 +108,7 @@ def terraform_preview_node(state: GlueJobState) -> GlueJobState:
                 if not source_exists
                 else [
                     {
-                        "filename": f"terraform/{source_system}/locals.tf",
+                        "filename": f"{source_system}/locals.tf",
                         "label": locals_label,
                         "language": "hcl",
                         "code": locals_code,

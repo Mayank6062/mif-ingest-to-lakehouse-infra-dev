@@ -484,7 +484,7 @@ class ValidationAgent:
             from app.services.github_service import GitHubService
             svc   = GitHubService()
             repo  = svc._get_repo()
-            path  = f"terraform/{source_sys}/locals.tf"
+            path  = f"{source_sys}/locals.tf"
             file_obj = svc._get_file_content(repo, path, svc._base_branch)
 
             if file_obj is None:

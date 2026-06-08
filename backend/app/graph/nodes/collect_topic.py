@@ -24,7 +24,7 @@ def collect_topic_node(state: GlueJobState) -> GlueJobState:
         "👋 Welcome to the **MIF Glue Job Creator**!\n\n"
         "I'll guide you through creating a production-ready Terraform entry "
         "for a new AWS Glue job in the `mif-ingest-to-lakehouse-infra-dev` repository.\n\n"
-        "Let's start with the Kafka topic name.\n\n"
+        "Enter the topic name for creation of the glue job\n\n"
         "**Format:** `{env}.{source_system}.{schema_grain}.raw`\n"
         f"**Allowed envs:** `{', '.join(envs)}`\n"
         "**Example:** `dev.saptcc.multi-1.raw`"

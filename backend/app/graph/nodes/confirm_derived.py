@@ -20,13 +20,13 @@ def confirm_derived_node(state: GlueJobState) -> GlueJobState:
     job_key = state.get("job_key", "")
     kafka_secret = state.get("kafka_secret_name", "")
     source_exists = state.get("source_system_exists", True)
-    locals_path = state.get("source_system_locals_path", f"terraform/{source_system}/locals.tf")
+    locals_path = state.get("source_system_locals_path", f"{source_system}/locals.tf")
 
     folder_status = "✅ Exists in GitHub" if source_exists else "⚠️ New source system"
     folder_action = (
         f"Add new entry to `{locals_path}` (glue.tf unchanged — uses for_each)"
         if source_exists
-        else f"Create `terraform/{source_system}/locals.tf` and `terraform/{source_system}/glue.tf`"
+        else f"Create `{source_system}/locals.tf` and `{source_system}/glue.tf`"
     )
 
     message = {
@@ -49,7 +49,7 @@ def confirm_derived_node(state: GlueJobState) -> GlueJobState:
                 {"field": "Environment", "value": env.upper()},
                 {"field": "Source System", "value": source_system},
                 {"field": "Schema Grain", "value": schema_grain},
-                {"field": "Job Key", "value": job_key},
+                {"field": "Job Name", "value": job_key},
                 {"field": "Kafka Secret Name", "value": kafka_secret},
                 {"field": "Source System Folder", "value": folder_status},
                 {"field": "Action", "value": folder_action},

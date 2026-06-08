@@ -32,7 +32,7 @@ def check_source_system_node(state: GlueJobState) -> GlueJobState:
     else:
         status_msg = (
             f"⚠️ **New source system:** `{locals_path}` does not exist in GitHub.\n\n"
-            f"I'll create `terraform/{source_system}/locals.tf` and `terraform/{source_system}/glue.tf`."
+            f"I'll create `{source_system}/locals.tf` and `{source_system}/glue.tf`."
         )
 
     message = {

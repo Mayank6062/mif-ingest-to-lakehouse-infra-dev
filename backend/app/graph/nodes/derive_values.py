@@ -58,7 +58,9 @@ def derive_values_node(state: GlueJobState) -> GlueJobState:
         "role": "assistant",
         "content": (
             f"✅ **Topic accepted:** `{topic}`\n\n"
-            "I've derived the following values automatically:"
+            "I've derived the following values automatically. "
+            "Review the fields below — click **Continue →** to proceed, "
+            "or hover any row and click ✏️ to edit a value."
         ),
         "type": "assistant_message",
         "step": {
@@ -67,13 +69,26 @@ def derive_values_node(state: GlueJobState) -> GlueJobState:
             "label": "Deriving Values"
         },
         "widget": {
-            "type": "summary",
-            "rows": [
-                {"field": "Environment", "value": derived["environment"].upper()},
-                {"field": "Source System", "value": derived["source_system"]},
-                {"field": "Schema Grain", "value": derived["schema_grain"]},
-                {"field": "Job Key", "value": derived["job_key"]},
-                {"field": "Kafka Secret Name", "value": derived["kafka_secret_name"]},
+            "type": "form",
+            "fields": [
+                {
+                    "name": "job_key",
+                    "label": "Job Name",
+                    "placeholder": derived["job_key"],
+                    "default": derived["job_key"],
+                    "required": True,
+                    "field_type": "text",
+                    "hint": "Glue job name — auto-derived from topic",
+                },
+                {
+                    "name": "kafka_secret_name",
+                    "label": "Kafka Secret Name",
+                    "placeholder": derived["kafka_secret_name"],
+                    "default": derived["kafka_secret_name"],
+                    "required": True,
+                    "field_type": "text",
+                    "hint": "AWS Secrets Manager secret name for Kafka credentials",
+                },
             ],
         },
     }
@@ -81,7 +96,7 @@ def derive_values_node(state: GlueJobState) -> GlueJobState:
     return {
         **state,
         "current_step": STEP_DERIVE_VALUES,
-        "waiting_for_user": False,
+        "waiting_for_user": True,
         "environment": derived["environment"],
         "source_system": derived["source_system"],
         "schema_grain": derived["schema_grain"],

@@ -10,6 +10,7 @@ interface WorkerConfigFormProps {
   onSubmit: (data: Record<string, string>) => void;
   isLocked?: boolean;
   onResubmit?: (data: Record<string, string>) => void;
+  formLabel?: string;
 }
 
 export function WorkerConfigForm({
@@ -17,6 +18,7 @@ export function WorkerConfigForm({
   onSubmit,
   isLocked = false,
   onResubmit,
+  formLabel = "Configuration",
 }: WorkerConfigFormProps) {
   const [values, setValues] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {};
@@ -33,8 +35,12 @@ export function WorkerConfigForm({
     fields.forEach((f) => {
       if (f.required && !values[f.name]?.trim()) errs[f.name] = `${f.label} is required`;
     });
-    const n = parseInt(values["number_of_workers"] || "0", 10);
-    if (isNaN(n) || n < 1 || n > 10) errs["number_of_workers"] = "Must be between 1 and 10";
+    // Only validate number_of_workers if it exists in the fields
+    const hasNumberOfWorkers = fields.some(f => f.name === "number_of_workers");
+    if (hasNumberOfWorkers) {
+      const n = parseInt(values["number_of_workers"] || "0", 10);
+      if (isNaN(n) || n < 1 || n > 10) errs["number_of_workers"] = "Must be between 1 and 10";
+    }
     return errs;
   };
 
@@ -61,7 +67,7 @@ export function WorkerConfigForm({
     return (
       <div className="bg-white dark:bg-gray-800 border border-green-200 dark:border-green-800 rounded-xl p-4 mt-2 w-full max-w-lg">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-xs font-semibold text-green-700 dark:text-green-400">✅ Worker Configuration saved</p>
+          <p className="text-xs font-semibold text-green-700 dark:text-green-400">✅ {formLabel} saved</p>
           <span className="text-[11px] text-gray-400">hover a row to edit ✏️</span>
         </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">

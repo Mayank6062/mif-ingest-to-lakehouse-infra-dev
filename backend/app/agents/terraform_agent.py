@@ -333,7 +333,7 @@ class TerraformAgent:
             {"field": "Environment", "value": state.get("environment", "").upper()},
             {"field": "Source System", "value": source_system},
             {"field": "Schema Grain", "value": schema_grain},
-            {"field": "Job Key", "value": ctx["job_key"]},
+            {"field": "Job Name", "value": ctx["job_key"]},
             {"field": "Kafka Secret (HCL)", "value": f"minerva-${{local.env}}-corp-mif-{source_system}-gluejob-sa-cc-api-creds"},
             {"field": "Worker Type", "value": ctx["worker_type"]},
             {"field": "Worker Count", "value": str(ctx["number_of_workers"])},

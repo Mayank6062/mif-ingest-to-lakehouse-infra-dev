@@ -70,6 +70,13 @@ def _map_user_input_to_state(
         topic = (widget_value or user_input or "").strip()
         return {"topic": topic, "raw_user_input": topic}
 
+    if current_step == STEP_DERIVE_VALUES:
+        form = widget_value if isinstance(widget_value, dict) else {}
+        return {
+            "job_key": form.get("job_key", ""),
+            "kafka_secret_name": form.get("kafka_secret_name", ""),
+        }
+
     if current_step == STEP_CONFIRM_DERIVED:
         answer = (widget_value or user_input or "").strip().lower()
         confirmed = any(
@@ -159,7 +166,7 @@ async def process_user_message(session_id: str, user_input: str, widget_value=No
     if user_input.strip().lower() in {"restart", "start over", "reset", "/restart"}:
         await clear_session_checkpoint(session_id)
         new_msgs = await process_first_message(session_id)
-        return [user_msg] + new_msgs
+        return new_msgs
 
     # Inline field-edit from compact card
     if isinstance(widget_value, dict) and widget_value.get("_edit_type"):
@@ -175,18 +182,23 @@ async def process_user_message(session_id: str, user_input: str, widget_value=No
                 "iceberg_warehouse": clean.get("iceberg_warehouse", cur.get("iceberg_warehouse", "")),
                 "assume_role_arn":   clean.get("assume_role_arn",   cur.get("assume_role_arn", "")),
             }
+        elif edit_type == "derived":
+            state_update = {
+                "job_key": clean.get("job_key", cur.get("job_key", "")),
+                "kafka_secret_name": clean.get("kafka_secret_name", cur.get("kafka_secret_name", "")),
+            }
         elif edit_type == "workers":
             # Route through the same mapping function as the normal workers step
             # to apply int() coercion on number_of_workers and knowledge-base defaults.
             # This prevents direct dict injection bypassing _map_user_input_to_state().
             state_update = _map_user_input_to_state(STEP_COLLECT_WORKERS, "", clean)
         else:
-            return [user_msg]
+            return []
 
         thread_config = _thread_config(session_id, action="edit")
         await graph.aupdate_state(thread_config, state_update, STEP_COLLECT_WORKERS)
         new_msgs = await _stream_graph(None, thread_config)
-        return [user_msg] + new_msgs
+        return new_msgs
 
     # Normal step: update checkpoint then resume from interrupt
     current_step = await _get_current_step_async(session_id)
@@ -199,9 +211,9 @@ async def process_user_message(session_id: str, user_input: str, widget_value=No
     if current_step == STEP_CONFIRM_DERIVED and state_update.get("user_confirmed_derived") is False:
         await clear_session_checkpoint(session_id)
         new_msgs = await process_first_message(session_id)
-        return [user_msg] + new_msgs
+        return new_msgs
 
     graph = get_compiled_graph()
     await graph.aupdate_state(thread_config, state_update)
     new_msgs = await _stream_graph(None, thread_config)
-    return [user_msg] + new_msgs
+    return new_msgs

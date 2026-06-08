@@ -202,6 +202,7 @@ def build_graph(checkpointer):
         checkpointer=checkpointer,
         interrupt_before=[
             STEP_DERIVE_VALUES,     # pause after collect_topic presents input widget
+            STEP_CHECK_SOURCE,      # pause after derive_values presents editable form
             STEP_COLLECT_SINK,      # pause after confirm_derived presents confirmation
             STEP_COLLECT_WORKERS,   # pause after collect_sink presents sink form
             STEP_RUN_VALIDATION,    # pause after collect_workers presents worker form
