@@ -15,13 +15,33 @@ from app.services.github_service import GitHubService
 def create_pr_node(state: GlueJobState) -> GlueJobState:
     """
     Creates the GitHub PR.
-    CRITICAL SAFETY CHECK: aborts if user_approved is not True.
+    CRITICAL SAFETY CHECKS:
+    - user_approved must be True
+    - terraform_validation_status must be "passed"
     """
-    # Safety guard — this should never fire in normal flow
+    # Safety guard 1: user approval check
     if not state.get("user_approved"):
         error_msg = {
             "role": "assistant",
             "content": "❌ **Error:** PR creation blocked — user approval not confirmed.",
+            "type": "error",
+        }
+        return {
+            **state,
+            "current_step": STEP_CREATE_PR,
+            "waiting_for_user": False,
+            "messages": [error_msg],
+        }
+
+    # Safety guard 2: terraform validation check (hard gate)
+    if state.get("terraform_validation_status") != "passed":
+        error_msg = {
+            "role": "assistant",
+            "content": (
+                "❌ **Error:** PR creation blocked — Terraform validation did not pass.\n\n"
+                f"Validation Status: {state.get('terraform_validation_status', 'unknown')}\n\n"
+                "All Terraform validations must pass before creating a Pull Request."
+            ),
             "type": "error",
         }
         return {

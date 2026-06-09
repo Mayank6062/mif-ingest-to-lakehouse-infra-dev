@@ -29,6 +29,7 @@ from app.graph.state import (
     STEP_GENERATE_TERRAFORM,
     STEP_TERRAFORM_PREVIEW,
     STEP_APPROVAL,
+    STEP_VALIDATE_TERRAFORM,
     STEP_CREATE_PR,
 )
 from app.graph.nodes.collect_topic import collect_topic_node
@@ -42,6 +43,7 @@ from app.graph.nodes.run_validation import run_validation_node
 from app.graph.nodes.show_summary import show_summary_node
 from app.graph.nodes.generate_terraform import generate_terraform_node
 from app.graph.nodes.terraform_preview import terraform_preview_node
+from app.graph.nodes.validate_terraform import validate_terraform_node
 from app.graph.nodes.create_pr import create_pr_node
 from app.services.audit_log import log_event
 from app.config import get_settings
@@ -77,10 +79,19 @@ def _route_after_validation(state: GlueJobState) -> str:
     return STEP_COLLECT_SINK
 
 
-def _route_after_approval(state: GlueJobState) -> str:
-    """After approval_router: create PR if approved, end gracefully if rejected."""
-    if state.get("user_approved"):
+def _route_after_terraform_validation(state: GlueJobState) -> str:
+    """After terraform_validation: create PR if validation passed, end if failed (waiting for user input)."""
+    if state.get("terraform_validation_status") == "passed":
         return STEP_CREATE_PR
+    # On failure, validation node sets waiting_for_user=True to wait for user input
+    # If user decides to continue, they must explicitly request to go back/restart
+    return STEP_VALIDATE_TERRAFORM
+
+
+def _route_after_approval(state: GlueJobState) -> str:
+    """After approval_router: validate terraform if approved, end gracefully if rejected."""
+    if state.get("user_approved"):
+        return STEP_VALIDATE_TERRAFORM
     return END
 
 
@@ -135,6 +146,7 @@ def build_graph(checkpointer):
     graph.add_node(STEP_GENERATE_TERRAFORM, generate_terraform_node)
     graph.add_node(STEP_TERRAFORM_PREVIEW,  terraform_preview_node)
     graph.add_node(STEP_APPROVAL,           _approval_router_node)
+    graph.add_node(STEP_VALIDATE_TERRAFORM, validate_terraform_node)
     graph.add_node(STEP_CREATE_PR,          create_pr_node)
 
     # ── Entry point ────────────────────────────────────────────────────────
@@ -206,13 +218,23 @@ def build_graph(checkpointer):
     # (interrupt_before APPROVAL pauses here for user to approve/reject)
     graph.add_edge(STEP_TERRAFORM_PREVIEW, STEP_APPROVAL)
 
-    # approval router → create_pr  OR  END (if rejected)
+    # approval router → validate_terraform  OR  END (if rejected)
     graph.add_conditional_edges(
         STEP_APPROVAL,
         _route_after_approval,
         {
-            STEP_CREATE_PR: STEP_CREATE_PR,
-            END:            END,
+            STEP_VALIDATE_TERRAFORM: STEP_VALIDATE_TERRAFORM,
+            END:                     END,
+        },
+    )
+
+    # validate_terraform → create_pr  OR  stay at validate_terraform (if validation failed, waiting for user)
+    graph.add_conditional_edges(
+        STEP_VALIDATE_TERRAFORM,
+        _route_after_terraform_validation,
+        {
+            STEP_CREATE_PR:          STEP_CREATE_PR,
+            STEP_VALIDATE_TERRAFORM: STEP_VALIDATE_TERRAFORM,
         },
     )
 
@@ -229,6 +251,8 @@ def build_graph(checkpointer):
             STEP_COLLECT_WORKERS,    # pause after collect_sink (sink form)
             STEP_RUN_VALIDATION,     # pause after collect_workers (worker form)
             STEP_APPROVAL,           # pause after terraform_preview (HCL + approval)
+            # NOTE: STEP_VALIDATE_TERRAFORM is NOT here — it's an auto-running node with no user input
+            # It runs automatically after approval, validates, and routes to CREATE_PR
         ],
     )
 

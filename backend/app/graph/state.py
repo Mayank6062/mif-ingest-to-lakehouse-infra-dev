@@ -24,6 +24,7 @@ STEP_SHOW_SUMMARY = "show_summary"
 STEP_GENERATE_TERRAFORM = "generate_terraform"
 STEP_TERRAFORM_PREVIEW = "terraform_preview"
 STEP_APPROVAL = "approval"
+STEP_VALIDATE_TERRAFORM = "validate_terraform"
 STEP_CREATE_PR = "create_pr"
 STEP_PR_SUCCESS = "pr_success"
 STEP_ERROR = "error"
@@ -41,6 +42,7 @@ STEP_ORDER = [
     STEP_GENERATE_TERRAFORM,
     STEP_TERRAFORM_PREVIEW,
     STEP_APPROVAL,
+    STEP_VALIDATE_TERRAFORM,
     STEP_CREATE_PR,
     STEP_PR_SUCCESS,
 ]
@@ -58,6 +60,7 @@ STEP_LABELS = {
     STEP_GENERATE_TERRAFORM: "Generating Terraform",
     STEP_TERRAFORM_PREVIEW: "Terraform Preview",
     STEP_APPROVAL: "Awaiting Approval",
+    STEP_VALIDATE_TERRAFORM: "Validating Terraform",
     STEP_CREATE_PR: "Creating Pull Request",
     STEP_PR_SUCCESS: "Pull Request Created",
 }
@@ -155,7 +158,12 @@ class GlueJobState(TypedDict, total=False):
     # ── STEP 10: User approval ────────────────────────────────────────────
     user_approved: Optional[bool]
 
-    # ── STEP 11: Pull Request ─────────────────────────────────────────────
+    # ── STEP 11: Terraform Validation ─────────────────────────────────────
+    terraform_validation_status: Optional[str]   # pending | passed | failed
+    terraform_validation_logs: Optional[str]     # stdout from all commands
+    terraform_validation_errors: Optional[str]   # stderr from failed commands
+
+    # ── STEP 12: Pull Request ─────────────────────────────────────────────
     pr_url: Optional[str]
     branch_name: Optional[str]
     pr_number: Optional[int]
@@ -227,6 +235,10 @@ def initial_state(session_id: str) -> GlueJobState:
         user_confirmed_derived=None,
         # Approval
         user_approved=None,
+        # Terraform validation
+        terraform_validation_status=None,
+        terraform_validation_logs=None,
+        terraform_validation_errors=None,
         # PR
         pr_url=None,
         branch_name=None,
