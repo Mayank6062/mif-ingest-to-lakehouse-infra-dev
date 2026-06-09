@@ -19,6 +19,7 @@ from app.graph.state import (
     GlueJobState,
     STEP_COLLECT_TOPIC,
     STEP_DERIVE_VALUES,
+    STEP_CHECK_KAFKA_TOPIC,
     STEP_CHECK_SOURCE,
     STEP_CONFIRM_DERIVED,
     STEP_COLLECT_SINK,
@@ -32,6 +33,7 @@ from app.graph.state import (
 )
 from app.graph.nodes.collect_topic import collect_topic_node
 from app.graph.nodes.derive_values import derive_values_node
+from app.graph.nodes.check_kafka_topic import check_kafka_topic_node
 from app.graph.nodes.check_source_system import check_source_system_node
 from app.graph.nodes.confirm_derived import confirm_derived_node
 from app.graph.nodes.collect_sink import collect_sink_node
@@ -42,15 +44,23 @@ from app.graph.nodes.generate_terraform import generate_terraform_node
 from app.graph.nodes.terraform_preview import terraform_preview_node
 from app.graph.nodes.create_pr import create_pr_node
 from app.services.audit_log import log_event
+from app.config import get_settings
 
 
 # ── Routing functions (conditional edges) ────────────────────────────────────
 
 def _route_after_derive(state: GlueJobState) -> str:
-    """After derive_values: go back to collect_topic if topic was invalid."""
+    """After derive_values: go to check_source or restart if derivation failed."""
     if state.get("current_step") == STEP_COLLECT_TOPIC:
         return STEP_COLLECT_TOPIC
     return STEP_CHECK_SOURCE
+
+
+def _route_after_kafka_check(state: GlueJobState) -> str:
+    """After check_kafka_topic: back to collect_topic on Rule 1 (topic missing), else derive_values."""
+    if state.get("kafka_topic_missing"):
+        return STEP_COLLECT_TOPIC
+    return STEP_DERIVE_VALUES
 
 
 def _route_after_confirm_derived(state: GlueJobState) -> str:
@@ -113,9 +123,10 @@ def build_graph(checkpointer):
     graph = StateGraph(GlueJobState)
 
     # ── Register nodes ─────────────────────────────────────────────────────
-    graph.add_node(STEP_COLLECT_TOPIC,      collect_topic_node)
-    graph.add_node(STEP_DERIVE_VALUES,      derive_values_node)
-    graph.add_node(STEP_CHECK_SOURCE,       check_source_system_node)
+    graph.add_node(STEP_COLLECT_TOPIC,       collect_topic_node)
+    graph.add_node(STEP_DERIVE_VALUES,       derive_values_node)
+    graph.add_node(STEP_CHECK_KAFKA_TOPIC,   check_kafka_topic_node)
+    graph.add_node(STEP_CHECK_SOURCE,        check_source_system_node)
     graph.add_node(STEP_CONFIRM_DERIVED,    confirm_derived_node)
     graph.add_node(STEP_COLLECT_SINK,       collect_sink_node)
     graph.add_node(STEP_COLLECT_WORKERS,    collect_workers_node)
@@ -131,11 +142,21 @@ def build_graph(checkpointer):
 
     # ── Edges ──────────────────────────────────────────────────────────────
 
-    # collect_topic → derive_values
-    # (interrupt_before DERIVE_VALUES pauses here for user to enter topic)
-    graph.add_edge(STEP_COLLECT_TOPIC, STEP_DERIVE_VALUES)
+    # collect_topic → check_kafka_topic (moved to step 2 for early validation)
+    # (interrupt_before COLLECT_TOPIC pauses here for user to enter topic)
+    graph.add_edge(STEP_COLLECT_TOPIC, STEP_CHECK_KAFKA_TOPIC)
 
-    # derive_values → check_source  OR  back to collect_topic if topic invalid
+    # check_kafka_topic → derive_values  OR  back to collect_topic if topic invalid
+    graph.add_conditional_edges(
+        STEP_CHECK_KAFKA_TOPIC,
+        _route_after_kafka_check,
+        {
+            STEP_COLLECT_TOPIC: STEP_COLLECT_TOPIC,
+            STEP_DERIVE_VALUES: STEP_DERIVE_VALUES,
+        },
+    )
+
+    # derive_values → check_source  OR  back to collect_topic if derivation fails
     graph.add_conditional_edges(
         STEP_DERIVE_VALUES,
         _route_after_derive,
@@ -201,12 +222,13 @@ def build_graph(checkpointer):
     return graph.compile(
         checkpointer=checkpointer,
         interrupt_before=[
-            STEP_DERIVE_VALUES,     # pause after collect_topic presents input widget
-            STEP_CHECK_SOURCE,      # pause after derive_values presents editable form
-            STEP_COLLECT_SINK,      # pause after confirm_derived presents confirmation
-            STEP_COLLECT_WORKERS,   # pause after collect_sink presents sink form
-            STEP_RUN_VALIDATION,    # pause after collect_workers presents worker form
-            STEP_APPROVAL,          # pause after terraform_preview presents HCL + approval
+            STEP_CHECK_KAFKA_TOPIC,  # pause after collect_topic (user enters topic, then Kafka check)
+            STEP_DERIVE_VALUES,      # pause after kafka_check (for Rules 2/3 approval, before auto-derive)
+            STEP_CHECK_SOURCE,       # pause after derive_values (source system decision)
+            STEP_COLLECT_SINK,       # pause after confirm_derived (confirmation)
+            STEP_COLLECT_WORKERS,    # pause after collect_sink (sink form)
+            STEP_RUN_VALIDATION,     # pause after collect_workers (worker form)
+            STEP_APPROVAL,           # pause after terraform_preview (HCL + approval)
         ],
     )
 

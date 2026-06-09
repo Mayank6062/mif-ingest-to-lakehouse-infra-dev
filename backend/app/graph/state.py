@@ -14,6 +14,7 @@ from app.models.chat import ChatMessage, ValidationResult
 
 STEP_COLLECT_TOPIC = "collect_topic"
 STEP_DERIVE_VALUES = "derive_values"
+STEP_CHECK_KAFKA_TOPIC = "check_kafka_topic"
 STEP_CHECK_SOURCE = "check_source_system"
 STEP_CONFIRM_DERIVED = "confirm_derived"
 STEP_COLLECT_SINK = "collect_sink"
@@ -29,6 +30,7 @@ STEP_ERROR = "error"
 
 STEP_ORDER = [
     STEP_COLLECT_TOPIC,
+    STEP_CHECK_KAFKA_TOPIC,
     STEP_DERIVE_VALUES,
     STEP_CHECK_SOURCE,
     STEP_CONFIRM_DERIVED,
@@ -46,6 +48,7 @@ STEP_ORDER = [
 STEP_LABELS = {
     STEP_COLLECT_TOPIC: "Enter Kafka Topic",
     STEP_DERIVE_VALUES: "Deriving Values",
+    STEP_CHECK_KAFKA_TOPIC: "Checking Kafka Topic",
     STEP_CHECK_SOURCE: "Checking Source System",
     STEP_CONFIRM_DERIVED: "Confirm Derived Values",
     STEP_COLLECT_SINK: "Sink Configuration",
@@ -92,6 +95,15 @@ class GlueJobState(TypedDict, total=False):
     # ── STEP 1: Topic ─────────────────────────────────────────────────────
     topic: Optional[str]
     raw_user_input: Optional[str]   # original uncleaned input
+
+    # ── STEP 2b: Kafka + Schema Registry check ──────────────────────────────
+    kafka_topic_exists: Optional[bool]           # True if topic found in Kafka broker
+    kafka_topic_missing: Optional[bool]          # True when Rule 1 fires (drives routing)
+    schema_registry_available: Optional[bool]    # True if SR responded successfully
+    schema_count: Optional[int]                  # Count of matching subjects (prefix match)
+    schema_exists: Optional[bool]                # True when schema_count > 0
+    schema_check_needs_approval: Optional[bool]  # True for Rule 2 and Rule 3
+    user_accepted_kafka_check: Optional[bool]    # User response to Rules 2/3 approval
 
     # ── STEP 2: Derived values ────────────────────────────────────────────
     environment: Optional[str]       # dev | snd | prod

@@ -12,54 +12,24 @@ from app.agents.validation_agent import ValidationAgent
 
 def run_validation_node(state: GlueJobState) -> GlueJobState:
     """
-    Runs all validations. Returns updated state with:
-    - validation_results: list of all rule results
+    Runs all validations silently (internal backend check only).
+    Results are stored in state but NOT displayed to user.
+    Returns updated state with:
+    - validation_results: list of all rule results (not shown in UI)
     - validation_passed: True if no failures
     """
     agent = ValidationAgent()
     results = agent.validate_all(state)
     passed = not agent.has_failures(results)
 
-    failures = [r for r in results if r["result"] == "fail"]
-    warnings = [r for r in results if r["result"] == "warn"]
-    passes = [r for r in results if r["result"] == "pass"]
-
-    if passed:
-        content = (
-            f"✅ **All validations passed!** "
-            f"({len(passes)} passed, {len(warnings)} warnings)\n\n"
-            "Ready to generate the Terraform configuration."
-        )
-        if warnings:
-            content += "\n\n⚠️ **Warnings (non-blocking):**\n"
-            for w in warnings:
-                content += f"- `{w['rule_id']}` {w['rule_name']}: {w['message']}\n"
-    else:
-        content = (
-            f"❌ **Validation failed** — {len(failures)} error(s) found.\n\n"
-            "Please review the errors below and correct your inputs."
-        )
-
-    message = {
-        "role": "assistant",
-        "content": content,
-        "type": "assistant_message",
-        "step": {
-            "current": get_step_number(STEP_RUN_VALIDATION),
-            "total": TOTAL_STEPS,
-            "label": "Running Validations"
-        },
-        "widget": {
-            "type": "validation",
-            "results": results,
-        },
-    }
-
+    # Validations run internally but messages are NOT sent to UI
+    # This allows the workflow to route based on validation_passed without showing details
+    
     return {
         **state,
         "current_step": STEP_RUN_VALIDATION,
         "waiting_for_user": False,
         "validation_results": results,
         "validation_passed": passed,
-        "messages": [message],
+        "messages": [],  # Hidden from UI — validation runs internally
     }

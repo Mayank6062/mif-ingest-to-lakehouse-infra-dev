@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     langsmith_project: str = "glue-job-agent"
     langsmith_tracing_enabled: bool = False
 
+    # Kafka + Schema Registry (used by check_kafka_topic node)
+    enable_kafka_check: bool = True
+    kafka_bootstrap_servers: str = "localhost:9092"
+    schema_registry_url: str = "http://localhost:8081"
+    kafka_admin_timeout_seconds: int = 10
+    schema_registry_timeout_seconds: int = 5
+
     cors_origins: str = "http://localhost:3000"
 
     @property

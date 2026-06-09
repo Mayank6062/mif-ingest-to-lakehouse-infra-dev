@@ -151,10 +151,26 @@ class GitHubService:
 
         GitHub is the authoritative source of truth. A source system exists only if
         `{source_system}/locals.tf` exists on the configured base branch.
+        We check both `terraform/{source_system}/locals.tf` and `{source_system}/locals.tf`
+        for detection, but always use and report `{source_system}/locals.tf` as the canonical path.
         """
         repo = self._get_repo()
+
+        # Check for existence in either location (for backward compatibility)
+        candidates = [
+            f"terraform/{source_system}/locals.tf",
+            f"{source_system}/locals.tf",
+        ]
+
+        found_path = None
+        for p in candidates:
+            if self._get_file_content(repo, p, self._base_branch) is not None:
+                found_path = p
+                break
+
+        github_exists = found_path is not None
+        # Always use the canonical path (without terraform/ prefix) for display and creation
         locals_path = f"{source_system}/locals.tf"
-        github_exists = self._get_file_content(repo, locals_path, self._base_branch) is not None
 
         logger.info(
             "GitHub source-system check: source_system=%s base_branch=%s path=%s github_exists=%s",
@@ -255,7 +271,7 @@ class GitHubService:
         # ── 2. Commit Terraform files ─────────────────────────────────────────
         committed_files: list[str] = []
         if source_exists:
-            committed_files.extend(self._commit_existing_system(repo, branch_name, state))
+            committed_files.extend(self._commit_existing_system(repo, branch_name, state, locals_path_in_repo))
         else:
             committed_files.extend(self._commit_new_system(repo, branch_name, state))
 
@@ -301,7 +317,7 @@ class GitHubService:
     # ── Scenario 1: existing source system ────────────────────────────────────
 
     def _commit_existing_system(
-        self, repo, branch_name: str, state: dict
+        self, repo, branch_name: str, state: dict, locals_path: str
     ) -> list[str]:
         """
         Read `{source}/locals.tf` from the base branch, insert the new
@@ -315,8 +331,7 @@ class GitHubService:
         if not terraform_hcl:
             raise ValueError("state.terraform_hcl is empty — cannot insert job entry")
 
-        locals_path = f"{source_system}/locals.tf"
-
+        # Use the actual locals_path discovered in the repository (may be under terraform/)
         # Read from base branch (authoritative content)
         base_file = self._get_file_content(repo, locals_path, self._base_branch)
         if base_file is None:

@@ -15,6 +15,7 @@ import asyncio
 from app.graph.state import (
     GlueJobState,
     STEP_COLLECT_TOPIC, STEP_DERIVE_VALUES,
+    STEP_CHECK_KAFKA_TOPIC,
     STEP_CONFIRM_DERIVED, STEP_COLLECT_SINK, STEP_COLLECT_WORKERS,
     STEP_RUN_VALIDATION, STEP_TERRAFORM_PREVIEW, STEP_APPROVAL,
     initial_state,
@@ -76,6 +77,16 @@ def _map_user_input_to_state(
             "job_key": form.get("job_key", ""),
             "kafka_secret_name": form.get("kafka_secret_name", ""),
         }
+
+    if current_step == STEP_CHECK_KAFKA_TOPIC:
+        # Rules 2/3: user responds to approval dialog ("Yes, Continue" / "No, Cancel")
+        # The ApprovalCard sends boolean via sendApproval() → content="yes"/"no"
+        answer = (widget_value or user_input or "").strip().lower()
+        accepted = any(
+            kw in answer
+            for kw in ["yes", "continue", "ok", "proceed"]
+        )
+        return {"user_accepted_kafka_check": accepted}
 
     if current_step == STEP_CONFIRM_DERIVED:
         answer = (widget_value or user_input or "").strip().lower()
@@ -213,7 +224,26 @@ async def process_user_message(session_id: str, user_input: str, widget_value=No
         new_msgs = await process_first_message(session_id)
         return new_msgs
 
+    # Special case: user rejected kafka check (Rules 2/3) — restart from Step 1
+    # Same reasoning as confirm_derived: routing already pointed to check_source,
+    # so we must handle rejection explicitly before resuming the graph.
+    if current_step == STEP_CHECK_KAFKA_TOPIC and state_update.get("user_accepted_kafka_check") is False:
+        await clear_session_checkpoint(session_id)
+        new_msgs = await process_first_message(session_id)
+        return new_msgs
+
     graph = get_compiled_graph()
     await graph.aupdate_state(thread_config, state_update)
     new_msgs = await _stream_graph(None, thread_config)
+
+    # Auto-advance Rule 4: check_kafka_topic sets auto_advance=True when schema is found.
+    # The graph pauses at interrupt_before=STEP_CHECK_SOURCE; we immediately resume it
+    # so the user sees the kafka info message plus subsequent messages in one batch.
+    if any(m.get("auto_advance") for m in new_msgs):
+        snap = await graph.aget_state(thread_config)
+        if snap and snap.values.get("current_step") == STEP_CHECK_KAFKA_TOPIC:
+            await graph.aupdate_state(thread_config, {"user_accepted_kafka_check": True})
+            more_msgs = await _stream_graph(None, thread_config)
+            new_msgs = new_msgs + more_msgs
+
     return new_msgs
