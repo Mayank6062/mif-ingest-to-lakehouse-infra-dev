@@ -161,8 +161,7 @@ class GlueJobState(TypedDict, total=False):
     # ── STEP 11: Terraform Validation ─────────────────────────────────────
     terraform_validation_status: Optional[str]   # pending | passed | failed
     terraform_validation_logs: Optional[str]     # stdout from all commands
-    terraform_validation_errors: Optional[str]   # stderr from failed commands
-
+    terraform_validation_errors: Optional[str]   # stderr from failed commands    terraform_validation_diagnostics: Optional[list]  # parsed diagnostics from terraform validate -json
     # ── STEP 12: Pull Request ─────────────────────────────────────────────
     pr_url: Optional[str]
     branch_name: Optional[str]
@@ -239,6 +238,7 @@ def initial_state(session_id: str) -> GlueJobState:
         terraform_validation_status=None,
         terraform_validation_logs=None,
         terraform_validation_errors=None,
+        terraform_validation_diagnostics=None,
         # PR
         pr_url=None,
         branch_name=None,

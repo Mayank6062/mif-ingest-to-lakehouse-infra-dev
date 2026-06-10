@@ -8,8 +8,9 @@ import os
 import subprocess
 import tempfile
 import shutil
+import json
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 import logging
 
 logger = logging.getLogger(__name__)
@@ -103,6 +104,42 @@ class TerraformValidator:
             logger.error(error_msg)
             raise TerraformValidationError(error_msg)
 
+    def _parse_terraform_diagnostics(self, json_output: str) -> List[dict]:
+        """
+        Parse terraform validate -json output to extract diagnostics.
+
+        Args:
+            json_output: JSON output from terraform validate -json
+
+        Returns:
+            List of diagnostic objects with fields: severity, summary, detail, range, module_address
+        """
+        diagnostics_list = []
+        try:
+            if not json_output.strip():
+                return diagnostics_list
+
+            data = json.loads(json_output)
+            if isinstance(data, dict) and "diagnostics" in data:
+                raw_diagnostics = data.get("diagnostics", [])
+                if isinstance(raw_diagnostics, list):
+                    for diag in raw_diagnostics:
+                        # Extract core diagnostic fields
+                        parsed = {
+                            "severity": diag.get("severity", "unknown"),  # error, warning
+                            "summary": diag.get("summary", ""),
+                            "detail": diag.get("detail", ""),
+                            "range": diag.get("range", {}),  # {filename, start, end}
+                            "module_address": diag.get("module_address", ""),
+                        }
+                        diagnostics_list.append(parsed)
+            logger.debug(f"Parsed {len(diagnostics_list)} Terraform diagnostics")
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse terraform validate JSON output: {e}")
+        except Exception as e:
+            logger.warning(f"Error extracting diagnostics: {e}")
+        return diagnostics_list
+
     def validate(
         self,
         terraform_files: Dict[str, str],
@@ -122,10 +159,12 @@ class TerraformValidator:
                 - logs: All captured stdout from all commands
                 - errors: Captured stderr if any command failed
                 - failed_command: Which command failed (if status is 'failed')
+                - terraform_validation_diagnostics: List of parsed diagnostics from terraform validate -json
         """
         logs: list[str] = []
         all_errors: list[str] = []
         failed_command: Optional[str] = None
+        terraform_diagnostics: List[dict] = []
 
         try:
             # Step 1: Create temporary directory
@@ -172,16 +211,19 @@ class TerraformValidator:
                     f"Formatting issues found:\n{fmt_stderr or fmt_stdout}"
                 )
 
-            # Step 5: Run terraform validate
-            logger.info(f"[{source_system}] Running terraform validate")
+            # Step 5: Run terraform validate -json
+            logger.info(f"[{source_system}] Running terraform validate -json")
             validate_stdout, validate_stderr, validate_rc = self._run_command(
-                ["terraform", "validate"],
+                ["terraform", "validate", "-json"],
                 work_dir,
                 "terraform validate"
             )
-            logs.append(f"=== terraform validate ===\n{validate_stdout}\n")
+            logs.append(f"=== terraform validate -json ===\n{validate_stdout}\n")
             if validate_stderr:
                 all_errors.append(f"terraform validate stderr:\n{validate_stderr}\n")
+
+            # Parse JSON diagnostics from terraform validate -json
+            terraform_diagnostics = self._parse_terraform_diagnostics(validate_stdout)
 
             if validate_rc != 0:
                 failed_command = "terraform validate"
@@ -198,6 +240,7 @@ class TerraformValidator:
                 "logs": "".join(logs),
                 "errors": "",
                 "failed_command": None,
+                "terraform_validation_diagnostics": terraform_diagnostics,
             }
 
         except TerraformValidationError as e:
@@ -208,6 +251,7 @@ class TerraformValidator:
                 "logs": "".join(logs),
                 "errors": "\n".join(all_errors) if all_errors else str(e),
                 "failed_command": failed_command,
+                "terraform_validation_diagnostics": terraform_diagnostics,
             }
         finally:
             # Always cleanup temp directory

@@ -12,6 +12,7 @@ from app.graph.state import (
 from app.services.terraform_validator import TerraformValidator
 from app.services.audit_log import log_event
 import logging
+from importlib import import_module
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +47,100 @@ def validate_terraform_node(state: GlueJobState) -> GlueJobState:
         if state.get("glue_tf_content"):
             terraform_files["glue.tf"] = state.get("glue_tf_content", "")
     else:
-        # For EXISTING systems: validate just the HCL entry that will be inserted
-        # Store it as a temporary .tf file for terraform validate
+        # For EXISTING systems: fetch the repository's locals.tf, merge the
+        # generated job entry into it exactly as `create_pr` would, and include
+        # any glue.tf required for validation context.
         terraform_hcl = state.get("terraform_hcl", "")
-        if terraform_hcl:
-            terraform_files["job_entry.tf"] = terraform_hcl
+        gh_mod = import_module("app.services.github_service")
+        GitHubService = gh_mod.GitHubService
+        _insert_into_glue_jobs = gh_mod._insert_into_glue_jobs
+        svc = GitHubService()
+        # Determine repo path for locals.tf
+        try:
+            repo_state = svc.get_source_system_repository_state(source_system)
+            locals_path = repo_state.get("locals_path")
+            repo = svc._get_repo()
+            base_file = svc._get_file_content(repo, locals_path, svc._base_branch)
+        except Exception as e:
+            logger.error(f"[{source_system}] Failed to fetch repository files: {e}")
+            error_msg = {
+                "role": "assistant",
+                "content": (
+                    "❌ **Terraform Validation Error**\n\n"
+                    "Could not read existing locals.tf from the repository. "
+                    "Please verify the repository and try again."
+                ),
+                "type": "error",
+            }
+            return {
+                **state,
+                "current_step": STEP_VALIDATE_TERRAFORM,
+                "waiting_for_user": True,
+                "terraform_validation_status": "failed",
+                "terraform_validation_logs": "",
+                "terraform_validation_errors": str(e),
+                "messages": [error_msg],
+            }
+
+        if base_file is None:
+            logger.error(f"[{source_system}] locals.tf not found at {locals_path}")
+            error_msg = {
+                "role": "assistant",
+                "content": (
+                    "❌ **Terraform Validation Error**\n\n"
+                    "Repository locals.tf could not be found. Ensure the repository "
+                    "contains the expected file before validating."
+                ),
+                "type": "error",
+            }
+            return {
+                **state,
+                "current_step": STEP_VALIDATE_TERRAFORM,
+                "waiting_for_user": True,
+                "terraform_validation_status": "failed",
+                "terraform_validation_logs": "",
+                "terraform_validation_errors": f"Missing file: {locals_path}",
+                "messages": [error_msg],
+            }
+
+        # Merge the generated entry into the fetched locals.tf
+        current_content = base_file.decoded_content.decode("utf-8")
+        try:
+            merged = _insert_into_glue_jobs(current_content, terraform_hcl)
+        except Exception as exc:
+            logger.error(f"[{source_system}] Failed to merge job entry: {exc}")
+            error_msg = {
+                "role": "assistant",
+                "content": (
+                    "❌ **Terraform Validation Error**\n\n"
+                    "Failed to insert job entry into existing locals.tf: " + str(exc)
+                ),
+                "type": "error",
+            }
+            return {
+                **state,
+                "current_step": STEP_VALIDATE_TERRAFORM,
+                "waiting_for_user": True,
+                "terraform_validation_status": "failed",
+                "terraform_validation_logs": "",
+                "terraform_validation_errors": str(exc),
+                "messages": [error_msg],
+            }
+
+        terraform_files["locals.tf"] = merged
+
+        # Optionally include glue.tf from the same directory or root for context
+        # Try {source}/glue.tf then glue.tf at repo root
+        try:
+            glue_path_candidate = f"{source_system}/glue.tf"
+            glue_file = svc._get_file_content(repo, glue_path_candidate, svc._base_branch)
+            if glue_file is None:
+                glue_file = svc._get_file_content(repo, "glue.tf", svc._base_branch)
+            if glue_file is not None:
+                terraform_files["glue.tf"] = glue_file.decoded_content.decode("utf-8")
+        except Exception:
+            # Non-fatal: validation can proceed without glue.tf if unavailable
+            logger.debug(f"[{source_system}] glue.tf not found or could not be read; continuing")
     
     # If no files to validate, return error
     if not terraform_files:
@@ -84,6 +174,7 @@ def validate_terraform_node(state: GlueJobState) -> GlueJobState:
         "terraform_validation_status": result["status"],
         "terraform_validation_logs": result["logs"],
         "terraform_validation_errors": result["errors"],
+        "terraform_validation_diagnostics": result.get("terraform_validation_diagnostics", []),
     }
 
     if result["status"] == "passed":
