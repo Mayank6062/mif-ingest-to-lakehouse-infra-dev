@@ -11,6 +11,7 @@ from app.graph.state import (
 )
 from app.services.terraform_validator import TerraformValidator
 from app.services.audit_log import log_event
+from app.config import get_settings
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,13 +26,46 @@ def validate_terraform_node(state: GlueJobState) -> GlueJobState:
     - terraform fmt -check -recursive
     - terraform validate
     
+    If ENABLE_TERRAFORM_PLAN=false (default for local dev), skips all binary
+    checks and auto-passes so the workflow proceeds to PR creation.
+
     If validation passes: returns state with status='passed', ready to route to create_pr
     If validation fails: returns state with status='failed' + error details, waiting for user
     """
     source_system = state.get("source_system", "unknown")
     job_key = state.get("job_key", "unknown")
     source_exists = state.get("source_system_exists", False)
-    
+
+    settings = get_settings()
+
+    # ── Skip terraform binary checks when ENABLE_TERRAFORM_PLAN=false ────────
+    if not settings.enable_terraform_plan:
+        logger.info(f"[{source_system}] Terraform validation skipped (ENABLE_TERRAFORM_PLAN=false)")
+        skip_message = {
+            "role": "assistant",
+            "content": (
+                "⏭️ **Terraform validation skipped** (`ENABLE_TERRAFORM_PLAN=false`)\n\n"
+                "Set `ENABLE_TERRAFORM_PLAN=true` in `.env` with cloud credentials "
+                "to enable `terraform init / fmt / validate` checks.\n\n"
+                "Proceeding to PR creation..."
+            ),
+            "type": "assistant_message",
+            "step": {
+                "current": get_step_number(STEP_VALIDATE_TERRAFORM),
+                "total": TOTAL_STEPS,
+                "label": "Validating Terraform"
+            },
+        }
+        return {
+            **state,
+            "current_step": STEP_VALIDATE_TERRAFORM,
+            "waiting_for_user": False,
+            "terraform_validation_status": "passed",
+            "terraform_validation_logs": "Skipped — ENABLE_TERRAFORM_PLAN=false",
+            "terraform_validation_errors": "",
+            "messages": [skip_message],
+        }
+
     logger.info(f"[{source_system}] Starting Terraform validation")
     log_event("terraform_validation_started", "system", state)
 

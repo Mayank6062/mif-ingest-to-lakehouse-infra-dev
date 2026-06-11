@@ -57,14 +57,42 @@ def check_kafka_topic_node(state: GlueJobState) -> GlueJobState:
     topic_found, kafka_error = service.check_topic_exists(topic)
 
     if not topic_found:
-        # ── Rule 1: topic missing (or broker unreachable) ────────────────────
-        detail = f"\n\n_Broker error: {kafka_error}_" if kafka_error else ""
+        if kafka_error:
+            # ── Rule 3b: broker unreachable — approval dialog (not a hard block) ─
+            # Broker is down / unreachable; we cannot confirm topic presence.
+            # Show an approval dialog so the user can continue anyway.
+            approval_message = {
+                "role": "assistant",
+                "content": (
+                    f"⚠️ **Kafka broker is unreachable** — topic existence cannot be verified.\n\n"
+                    f"_Error: {kafka_error}_\n\n"
+                    f"Do you want to continue creating the Glue Job anyway?"
+                ),
+                "type": "assistant_message",
+                "step": step_info,
+                "approval_request": True,
+                "approval_options": ["Yes, Continue", "No, Cancel"],
+            }
+            return {
+                **state,
+                "current_step": STEP_CHECK_KAFKA_TOPIC,
+                "waiting_for_user": True,
+                "kafka_topic_exists": False,
+                "kafka_topic_missing": False,
+                "schema_registry_available": False,
+                "schema_count": 0,
+                "schema_exists": False,
+                "schema_check_needs_approval": True,
+                "user_accepted_kafka_check": None,
+                "messages": [approval_message],
+            }
+
+        # ── Rule 1: broker reachable but topic genuinely absent ──────────────
         error_message = {
             "role": "assistant",
             "content": (
                 f"❌ **Topic not found in Kafka:** `{topic}`\n\n"
                 f"Please verify the topic exists in the Kafka broker and try again."
-                f"{detail}"
             ),
             "type": "assistant_message",
             "step": step_info,

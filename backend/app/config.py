@@ -3,6 +3,10 @@ from pydantic_settings import BaseSettings
 from functools import lru_cache
 import os
 
+# Resolve .env relative to this file's directory (backend/) so the server
+# finds it regardless of the working directory uvicorn is launched from.
+_ENV_FILE = os.path.join(os.path.dirname(__file__), "..", ".env")
+
 
 class Settings(BaseSettings):
     # Azure OpenAI via EPAM proxy
@@ -39,6 +43,10 @@ class Settings(BaseSettings):
     kafka_admin_timeout_seconds: int = 10
     schema_registry_timeout_seconds: int = 5
 
+    # Terraform execution controls
+    enable_terraform_plan: bool = False
+    enable_tfsec: bool = False
+
     cors_origins: str = "http://localhost:3000"
 
     @property
@@ -46,7 +54,7 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_origins.split(",")]
 
     class Config:
-        env_file = ".env"
+        env_file = _ENV_FILE
         case_sensitive = False
 
 
