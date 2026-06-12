@@ -33,11 +33,19 @@ class TestTerraformValidator:
         # Mock subprocess to simulate successful terraform commands
         with patch("subprocess.run") as mock_run:
             # Mock return for all three commands (init, fmt, validate)
-            mock_result = MagicMock()
-            mock_result.stdout = "✓ Terraform validation passed"
-            mock_result.stderr = ""
-            mock_result.returncode = 0
-            mock_run.return_value = mock_result
+            def side_effect(*args, **kwargs):
+                result = MagicMock()
+                if "validate" in args[0]:
+                    # Return JSON for terraform validate -json
+                    result.stdout = '{"diagnostics":[],"format_version":"1.0"}'
+                    result.stderr = ""
+                else:
+                    result.stdout = "✓ Terraform operation passed"
+                    result.stderr = ""
+                result.returncode = 0
+                return result
+
+            mock_run.side_effect = side_effect
 
             result = validator.validate(terraform_files, "test-source")
 
@@ -45,6 +53,7 @@ class TestTerraformValidator:
         assert "passed" in result["logs"].lower()
         assert result["errors"] == ""
         assert result["failed_command"] is None
+        assert result["terraform_validation_diagnostics"] == []
 
     def test_validate_init_fails(self):
         """Test when terraform init fails."""
@@ -115,7 +124,7 @@ class TestTerraformValidator:
                 result = MagicMock()
                 if "validate" in args[0]:
                     result.returncode = 1
-                    result.stdout = ""
+                    result.stdout = '{"diagnostics":[{"severity":"error","summary":"Invalid variable reference","detail":"Variable not found","range":{"filename":"locals.tf","start":{"line":1,"column":10},"end":{"line":1,"column":20}}}],"format_version":"1.0"}'
                     result.stderr = "Error: Invalid variable reference"
                 else:
                     result.returncode = 0
@@ -130,6 +139,8 @@ class TestTerraformValidator:
         assert result["status"] == "failed"
         assert result["failed_command"] == "terraform validate"
         assert "Invalid variable reference" in result["errors"]
+        assert len(result["terraform_validation_diagnostics"]) == 1
+        assert result["terraform_validation_diagnostics"][0]["severity"] == "error"
 
     def test_validate_timeout(self):
         """Test when terraform command times out."""
@@ -201,6 +212,65 @@ class TestTerraformValidator:
         # Should still create temp dir and handle gracefully
         assert result["status"] in ["passed", "failed"]
 
+    def test_parse_terraform_diagnostics(self):
+        """Test parsing of terraform validate -json diagnostics."""
+        validator = TerraformValidator()
+        
+        json_with_diagnostics = '''{
+            "diagnostics": [
+                {
+                    "severity": "error",
+                    "summary": "Invalid variable reference",
+                    "detail": "Variable not found in scope",
+                    "range": {
+                        "filename": "locals.tf",
+                        "start": {"line": 5, "column": 10},
+                        "end": {"line": 5, "column": 25}
+                    },
+                    "module_address": "module.glue"
+                },
+                {
+                    "severity": "warning",
+                    "summary": "Deprecated attribute",
+                    "detail": "This attribute is deprecated",
+                    "range": {
+                        "filename": "glue.tf",
+                        "start": {"line": 10, "column": 5},
+                        "end": {"line": 10, "column": 15}
+                    },
+                    "module_address": ""
+                }
+            ],
+            "format_version": "1.0"
+        }'''
+        
+        parsed = validator._parse_terraform_diagnostics(json_with_diagnostics)
+        
+        assert len(parsed) == 2
+        assert parsed[0]["severity"] == "error"
+        assert parsed[0]["summary"] == "Invalid variable reference"
+        assert parsed[0]["range"]["filename"] == "locals.tf"
+        assert parsed[1]["severity"] == "warning"
+        assert parsed[1]["module_address"] == ""
+
+    def test_parse_terraform_diagnostics_empty(self):
+        """Test parsing of empty terraform diagnostics."""
+        validator = TerraformValidator()
+        
+        json_empty = '{"diagnostics": [], "format_version": "1.0"}'
+        parsed = validator._parse_terraform_diagnostics(json_empty)
+        
+        assert parsed == []
+
+    def test_parse_terraform_diagnostics_invalid_json(self):
+        """Test parsing of invalid JSON returns empty list."""
+        validator = TerraformValidator()
+        
+        invalid_json = "{ invalid json"
+        parsed = validator._parse_terraform_diagnostics(invalid_json)
+        
+        assert parsed == []
+
 
 class TestValidateTerraformNode:
     """Test validate_terraform_node.py"""
@@ -224,12 +294,14 @@ class TestValidateTerraformNode:
                 "logs": "✓ All validations passed",
                 "errors": "",
                 "failed_command": None,
+                "terraform_validation_diagnostics": [],
             }
 
             result = validate_terraform_node(state)
 
         assert result["current_step"] == STEP_VALIDATE_TERRAFORM
         assert result["terraform_validation_status"] == "passed"
+        assert result["terraform_validation_diagnostics"] == []
         assert result["waiting_for_user"] is False
         assert any("passed" in m.get("content", "").lower() for m in result["messages"])
 
@@ -252,12 +324,22 @@ class TestValidateTerraformNode:
                 "logs": "terraform validate output",
                 "errors": "Error: Invalid syntax in locals.tf",
                 "failed_command": "terraform validate",
+                "terraform_validation_diagnostics": [
+                    {
+                        "severity": "error",
+                        "summary": "Invalid syntax",
+                        "detail": "Unexpected token",
+                        "range": {"filename": "locals.tf"},
+                        "module_address": ""
+                    }
+                ],
             }
 
             result = validate_terraform_node(state)
 
         assert result["current_step"] == STEP_VALIDATE_TERRAFORM
         assert result["terraform_validation_status"] == "failed"
+        assert len(result["terraform_validation_diagnostics"]) == 1
         assert result["waiting_for_user"] is True
         assert any("failed" in m.get("content", "").lower() for m in result["messages"])
         assert "Invalid syntax" in result["terraform_validation_errors"]
@@ -281,3 +363,59 @@ class TestValidateTerraformNode:
         assert result["terraform_validation_status"] == "failed"
         assert result["waiting_for_user"] is True
         assert "Missing" in result["terraform_validation_errors"]
+
+    def test_existing_system_merges_and_validates(self):
+        """For existing source systems, ensure locals.tf is fetched, merged, and passed to validator."""
+        from app.graph.nodes.validate_terraform import validate_terraform_node
+
+        state = {
+            "source_system": "test",
+            "job_key": "test-job",
+            "terraform_hcl": 'test_entry = { name = "new" }',
+            "source_system_exists": True,
+            "current_step": "collect_topic",
+            "messages": [],
+        }
+
+        # Mock GitHubService used inside the node to return an existing locals.tf
+        # Patch import_module used in the node so we don't need the PyGithub dependency
+        import types
+        fake_module = types.SimpleNamespace()
+        FakeGHClass = MagicMock()
+        gh_instance = MagicMock()
+        FakeGHClass.return_value = gh_instance
+        fake_module.GitHubService = FakeGHClass
+        fake_module._insert_into_glue_jobs = lambda content, entry: content.replace("}\n", f"\n{entry}\n}}\n")
+
+        # Patch the validator to capture the files written for validation
+        with patch("app.graph.nodes.validate_terraform.TerraformValidator.validate") as mock_validate:
+            mock_validate.return_value = {
+                "status": "passed",
+                "logs": "✓ All validations passed",
+                "errors": "",
+                "failed_command": None,
+                "terraform_validation_diagnostics": [],
+            }
+
+            with patch("app.graph.nodes.validate_terraform.import_module") as mock_import_module:
+                mock_import_module.return_value = fake_module
+                gh_instance.get_source_system_repository_state.return_value = {
+                    "locals_path": "test/locals.tf",
+                    "github_exists": True,
+                }
+                gh_instance._get_repo.return_value = MagicMock()
+                base_file = MagicMock()
+                base_file.decoded_content = b"glue_jobs = {\n  existing = {}\n}\n"
+                gh_instance._get_file_content.return_value = base_file
+
+                result = validate_terraform_node(state)
+
+                # Ensure validator was called and locals.tf was included
+                assert mock_validate.called
+                called_args = mock_validate.call_args[0]
+                passed_files = called_args[0]
+                assert "locals.tf" in passed_files
+                assert "existing" in passed_files["locals.tf"]
+                assert "test_entry" in passed_files["locals.tf"]
+
+                assert result["terraform_validation_status"] == "passed"
