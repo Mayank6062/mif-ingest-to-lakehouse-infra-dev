@@ -10,6 +10,7 @@ from app.graph.state import (
 )
 from app.agents.terraform_agent import TerraformAgent
 from app.agents.knowledge_agent import KnowledgeAgent
+from app.config import get_settings
 
 
 def generate_terraform_node(state: GlueJobState) -> GlueJobState:
@@ -56,6 +57,28 @@ def generate_terraform_node(state: GlueJobState) -> GlueJobState:
         },
     }
 
+    # ── Draft Workspace integration (Step 2.2) ─────────────────────────────
+    # When ENABLE_DRAFT_WORKSPACE is True, build file_edits so the processor
+    # can store file content in DraftWorkspaceService instead of only in the
+    # LangGraph checkpoint.  Large content fields (locals_tf_full, etc.) are
+    # kept for backward-compatible PR creation via create_pr_node.
+    file_edits = None
+    glue_job_configured = None
+    if get_settings().enable_draft_workspace:
+        edits = []
+        if not source_exists:
+            # New source system: emit full locals.tf + glue.tf for draft storage
+            if locals_tf_full:
+                edits.append({"path": f"{source_system}/locals.tf", "content": locals_tf_full})
+            if glue_tf_content:
+                edits.append({"path": f"{source_system}/glue.tf", "content": glue_tf_content})
+        else:
+            # Existing source system: emit the HCL job block as the pending change
+            if terraform_hcl:
+                edits.append({"path": f"{source_system}/locals.tf", "content": terraform_hcl})
+        file_edits = edits if edits else None
+        glue_job_configured = True
+
     return {
         **state,
         "current_step": STEP_GENERATE_TERRAFORM,
@@ -66,5 +89,8 @@ def generate_terraform_node(state: GlueJobState) -> GlueJobState:
         "files_to_modify": files_to_modify,
         "pr_checklist": pr_checklist,
         "new_source_checklist": new_source_checklist,
+        # Draft Workspace fields (populated only when flag is on)
+        "file_edits": file_edits,
+        "glue_job_configured": glue_job_configured,
         "messages": [message],
     }

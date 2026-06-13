@@ -13,7 +13,10 @@ from app.api.routes import router as api_router
 from app.knowledge.loader import KnowledgeBaseLoader
 from app.graph.builder import initialize_graph
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.checkpoint.redis.ashallow import AsyncShallowRedisSaver
+try:
+    from langgraph.checkpoint.redis.ashallow import AsyncShallowRedisSaver
+except Exception:
+    AsyncShallowRedisSaver = None
 
 settings = get_settings()
 

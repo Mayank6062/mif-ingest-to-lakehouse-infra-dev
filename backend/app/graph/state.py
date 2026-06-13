@@ -168,6 +168,20 @@ class GlueJobState(TypedDict, total=False):
     branch_name: Optional[str]
     pr_number: Optional[int]
 
+    # ── Draft Workspace (Step 2.2) ─────────────────────────────────────────
+    # ID of the DraftWorkspace created at session init; None when feature flag off.
+    draft_workspace_id: Optional[str]
+    # Emitted by generate_terraform_node (when ENABLE_DRAFT_WORKSPACE=True):
+    # list of {"path": str, "content": str} dicts for DraftWorkspaceService.add_file().
+    # Processor consumes and clears this field after each run.
+    file_edits: Optional[List[dict]]
+    # Signal emitted by generate_terraform_node so processor calls add_glue_job().
+    glue_job_configured: Optional[bool]
+    # Number of glue jobs successfully added to the draft (drives menu visibility).
+    glue_jobs_created_count: Optional[int]
+    # Audit trail of draft mutations: [{timestamp, operation, ...}] for review UI.
+    draft_change_history: Optional[List[dict]]
+
 
 def get_step_number(step: str) -> int:
     """Returns the 1-based step number for the given step name."""
@@ -243,4 +257,10 @@ def initial_state(session_id: str) -> GlueJobState:
         pr_url=None,
         branch_name=None,
         pr_number=None,
+        # Draft Workspace (Step 2.2) — all None/0 until ENABLE_DRAFT_WORKSPACE wires them in
+        draft_workspace_id=None,
+        file_edits=None,
+        glue_job_configured=None,
+        glue_jobs_created_count=0,
+        draft_change_history=None,
     )

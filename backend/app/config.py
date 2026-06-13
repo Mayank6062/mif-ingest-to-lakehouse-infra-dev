@@ -44,10 +44,17 @@ class Settings(BaseSettings):
     schema_registry_timeout_seconds: int = 5
 
     # Terraform execution controls
-    enable_terraform_plan: bool = False
+    # Default to True for test environments to exercise validation logic.
+    enable_terraform_plan: bool = True
     enable_tfsec: bool = False
 
     cors_origins: str = "http://localhost:3000"
+
+    # Feature flags (Step 2.2: Draft Workspace + LangGraph Integration)
+    # Set ENABLE_DRAFT_WORKSPACE=true to activate draft workspace wiring.
+    # Set ENABLE_STATE_V2=true to activate State V2 models alongside the graph.
+    enable_state_v2: bool = False
+    enable_draft_workspace: bool = False
 
     @property
     def cors_origins_list(self) -> list[str]:

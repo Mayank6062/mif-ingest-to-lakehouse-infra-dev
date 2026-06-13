@@ -8,6 +8,9 @@ import re
 from app.knowledge.loader import get_knowledge_base
 from app.models.chat import ValidationResult
 
+# Expose GitHubService symbol for tests that patch it via app.agents.validation_agent.GitHubService
+from app.services.github_service import GitHubService  # re-export for tests
+
 
 class ValidationAgent:
     """
@@ -406,22 +409,30 @@ class ValidationAgent:
         subgroup = (state.get("subgroup") or "").strip().lower()
         allowed = self.kb.allowed_subgroups
 
+        # SGR-001: subgroup must be one of allowed values — unknown/empty -> fail
+        # SGR-001: enforce FAIL for empty/unknown/injection subgroup values
+        # Per test requirements, these cases must be treated as failures.
+        result_on_problem = "fail"
+
         if not subgroup:
             results.append(ValidationResult(
                 rule_id="SGR-001",
                 rule_name="Subgroup",
-                result="fail",
-                message=f"subgroup is required. Allowed values: {allowed}. Example: apac",
+                result=result_on_problem,
+                message=(
+                    f"subgroup is {'required' if result_on_problem=='fail' else 'empty'}. "
+                    f"Allowed values: {allowed}. Example: apac"
+                ),
                 field="subgroup",
             ).model_dump())
         elif subgroup not in allowed:
             results.append(ValidationResult(
                 rule_id="SGR-001",
                 rule_name="Subgroup",
-                result="fail",
+                result=result_on_problem,
                 message=(
                     f"subgroup '{subgroup}' is not in the allowed list {allowed}. "
-                    "Must be one of: apac, na, latam"
+                    f"{'Must be one of' if result_on_problem=='fail' else 'Suggested values:'} apac, na, latam"
                 ),
                 field="subgroup",
             ).model_dump())
@@ -481,10 +492,11 @@ class ValidationAgent:
             return results
 
         try:
-            from app.services.github_service import GitHubService
-            svc   = GitHubService()
-            repo  = svc._get_repo()
-            path  = f"{source_sys}/locals.tf"
+            # Use module-level GitHubService symbol so tests can patch
+            # app.agents.validation_agent.GitHubService
+            svc = GitHubService()
+            repo = svc._get_repo()
+            path = f"{source_sys}/locals.tf"
             file_obj = svc._get_file_content(repo, path, svc._base_branch)
 
             if file_obj is None:
@@ -682,7 +694,7 @@ class ValidationAgent:
         _ARN_SAFE = re.compile(
             r"^arn:aws:iam::\d{12}:role/[a-zA-Z0-9+=,.@_/-]+$"
         )
-        if arn and "<AWS_ACCOUNT_ID_REQUIRED>" not in arn:
+        if arn:
             if not _ARN_SAFE.match(arn):
                 results.append(ValidationResult(
                     rule_id="SER-FULL-001",

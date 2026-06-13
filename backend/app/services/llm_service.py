@@ -5,17 +5,26 @@ All business logic (validation, derivation) is deterministic Python.
 """
 
 from langsmith import traceable
-from openai import AzureOpenAI
 from app.config import get_settings
+from typing import Any
 
-_client: AzureOpenAI | None = None
+# Delay import of openai until actually creating a client to allow tests
+# to import this module when openai is not installed.
+_client: Any = None
+AzureOpenAI = None
 
 
-def get_llm_client() -> AzureOpenAI:
+def get_llm_client() -> Any:
     global _client
     if _client is None:
         settings = get_settings()
-        _client = AzureOpenAI(
+        azure_cls = AzureOpenAI
+        if azure_cls is None:
+            try:
+                from openai import AzureOpenAI as azure_cls
+            except Exception:
+                raise
+        _client = azure_cls(
             api_key=settings.azure_openai_api_key.get_secret_value(),
             azure_endpoint=settings.azure_openai_endpoint,
             api_version=settings.azure_openai_api_version,

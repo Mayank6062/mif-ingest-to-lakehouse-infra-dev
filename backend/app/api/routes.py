@@ -143,3 +143,214 @@ async def delete_session(
     store = get_session_store()
     await store.delete(session_id)
     return {"deleted": True, "session_id": session_id}
+
+
+# ── Draft Workspace endpoints (Step 2.2) ──────────────────────────────────────
+
+@router.get("/sessions/{session_id}/draft")
+async def get_draft_review(
+    session_id: str,
+    authorization: str = Header(default=""),
+):
+    """
+    Return the draft workspace summary for the given session.
+
+    Response shape (when ENABLE_DRAFT_WORKSPACE=True):
+      {
+        "draft_id": str,
+        "session_id": str,
+        "status": str,
+        "files_count": int,
+        "glue_jobs_count": int,
+        "glue_jobs": [{job_key, source_system, schema_grain, created_at}],
+        "snapshots_count": int,
+        "create_another_job_visible": bool,   # True when glue_jobs_count > 0
+        "created_at": datetime,
+        "updated_at": datetime,
+      }
+
+    Returns 404 when the session has no draft (either feature flag off or session
+    not yet initialised).
+    """
+    await _require_owner_async(session_id, authorization)
+
+    from app.api.processor import get_session_draft_summary
+    summary = get_session_draft_summary(session_id)
+    if summary is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No draft workspace found for this session. "
+                   "Either ENABLE_DRAFT_WORKSPACE is off or the session has not been initialised.",
+        )
+    return summary
+
+
+@router.post("/sessions/{session_id}/draft/discard")
+async def discard_last_change(
+    session_id: str,
+    authorization: str = Header(default=""),
+):
+    """
+    Discard the last change in the session's draft workspace (snapshot-based undo).
+
+    Returns {"discarded": True} on success.
+    Returns 409 when there is nothing to discard.
+    Returns 404 when no draft exists for the session.
+    """
+    await _require_owner_async(session_id, authorization)
+
+    from app.api.processor import get_session_draft_summary, discard_session_draft_change
+
+    # Verify the draft exists before attempting discard
+    summary = get_session_draft_summary(session_id)
+    if summary is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No draft workspace found for this session.",
+        )
+
+    success = discard_session_draft_change(session_id)
+    if not success:
+        raise HTTPException(
+            status_code=409,
+            detail="Nothing to discard — no undo history available.",
+        )
+    return {"discarded": True, "session_id": session_id}
+
+
+class UpdateDraftMetaRequest(BaseModel):
+    """STEP 2.3: Update user-editable draft metadata."""
+    branch_name: str | None = None
+    user_commit_message: str | None = None
+    user_pr_title: str | None = None
+    user_pr_description: str | None = None
+
+
+@router.post("/sessions/{session_id}/draft/update_meta")
+async def update_draft_meta(
+    session_id: str,
+    request: UpdateDraftMetaRequest,
+    authorization: str = Header(default=""),
+):
+    """
+    STEP 2.3: Update user-editable metadata for draft.
+
+    Persists:
+    - branch_name: Custom branch name (default: draft/<draft_id>)
+    - user_commit_message: Custom commit message
+    - user_pr_title: Custom PR title
+    - user_pr_description: Custom PR description
+
+    Returns the updated draft metadata.
+    """
+    await _require_owner_async(session_id, authorization)
+
+    from app.api.processor import update_session_draft_metadata
+
+    metadata = {k: v for k, v in request.dict().items() if v is not None}
+    result = update_session_draft_metadata(session_id, metadata)
+
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No draft workspace found for this session.",
+        )
+
+    return {"status": "success", "metadata": result}
+
+
+@router.post("/sessions/{session_id}/draft/preview_commit")
+async def preview_draft_commit(
+    session_id: str,
+    authorization: str = Header(default=""),
+):
+    """
+    STEP 2.3: Compute diff/patch for all files in draft without committing.
+
+    Returns preview of changes:
+    {
+      "draft_id": str,
+      "files_count": int,
+      "total_size": int (bytes),
+      "file_list": [{ "path": str, "size": int, "type": str }]
+    }
+    """
+    await _require_owner_async(session_id, authorization)
+
+    from app.api.processor import preview_session_draft_commit
+
+    preview = preview_session_draft_commit(session_id)
+    if preview is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No draft workspace found for this session.",
+        )
+
+    return preview
+
+
+@router.post("/sessions/{session_id}/draft/create_pr")
+async def create_draft_pr(
+    session_id: str,
+    authorization: str = Header(default=""),
+):
+    """
+    STEP 2.3: Trigger single-commit PR creation for draft.
+
+    This endpoint:
+    1. Marks draft as PR_CREATING (frozen, no more edits)
+    2. Collects all files from draft
+    3. Calls GitHubService.create_single_commit_and_pr()
+    4. Returns PR URL + number
+
+    Returns:
+    {
+      "status": "success",
+      "pr_url": str,
+      "pr_number": int,
+      "commit_sha": str
+    }
+
+    Raises 409 if draft is already PR_CREATING (duplicate protection).
+    """
+    await _require_owner_async(session_id, authorization)
+
+    from app.api.processor import create_session_draft_pr
+
+    result = create_session_draft_pr(session_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No draft workspace found for this session.",
+        )
+    if "error" in result:
+        raise HTTPException(
+            status_code=409,
+            detail=result["error"],
+        )
+
+    return result
+
+
+@router.post("/sessions/{session_id}/draft/abandon")
+async def abandon_draft(
+    session_id: str,
+    authorization: str = Header(default=""),
+):
+    """
+    STEP 2.3: Mark draft as ABANDONED (read-only, no further edits).
+
+    Returns {"status": "success"}.
+    """
+    await _require_owner_async(session_id, authorization)
+
+    from app.api.processor import abandon_session_draft
+
+    result = abandon_session_draft(session_id)
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No draft workspace found for this session.",
+        )
+
+    return {"status": "success", "session_id": session_id}
